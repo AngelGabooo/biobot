@@ -7,7 +7,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-// Optimizado para los datos que envía Twilio
 app.use(express.urlencoded({ extended: true }));
 
 const companyInfo = {
@@ -55,8 +54,8 @@ function detectService(text) {
 // URL base estática fija para evitar errores de proxy/headers en Vercel
 const BASE_URL = 'https://biobot-six.vercel.app';
 
-// Endpoints
-app.post('/voice', (req, res) => {
+// ===== ENDPOINT PRINCIPAL: /voice =====
+app.all('/voice', (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
   
   const gather = twiml.gather({
@@ -72,11 +71,12 @@ app.post('/voice', (req, res) => {
   twiml.say(`No te he escuchado. Escríbenos por WhatsApp al ${companyInfo.phone}. Gracias por llamar.`);
   
   res.header('Content-Type', 'text/xml');
-  res.status(200).send(twiml.toString());
+  return res.status(200).send(twiml.toString());
 });
 
-app.post('/process-voice', (req, res) => {
-  const speechResult = req.body.SpeechResult;
+// ===== ENDPOINT SECUNDARIO: /process-voice =====
+app.all('/process-voice', (req, res) => {
+  const speechResult = req.body?.SpeechResult || req.query?.SpeechResult;
   const twiml = new twilio.twiml.VoiceResponse();
   
   if (!speechResult) {
@@ -108,9 +108,10 @@ app.post('/process-voice', (req, res) => {
 
   twiml.say('Gracias por llamarnos. Nos comunicaremos contigo pronto. ¡Hasta luego!');
   res.header('Content-Type', 'text/xml');
-  res.status(200).send(twiml.toString());
+  return res.status(200).send(twiml.toString());
 });
 
+// ===== ENDPOINT DE CONTROL: /health =====
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor independiente BioMey corriendo perfectamente' });
 });
