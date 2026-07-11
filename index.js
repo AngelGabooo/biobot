@@ -54,7 +54,66 @@ function detectService(text) {
 // URL base estática fija para evitar errores de proxy/headers en Vercel
 const BASE_URL = 'https://biobot-six.vercel.app';
 
-// ===== ENDPOINT PRINCIPAL: /voice =====
+// ===== ENDPOINT 1: BOT DE WHATSAPP =====
+app.all('/whatsapp', (req, res) => {
+  const incomingMsg = req.body?.Body || req.query?.Body || '';
+  const twiml = new twilio.twiml.MessagingResponse();
+  
+  const lowerText = incomingMsg.toLowerCase().trim();
+
+  // Saludo inicial
+  if (!lowerText || lowerText === 'hola' || lowerText === 'inicio') {
+    twiml.message(
+      `¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description}\n\n` +
+      `¿En qué servicio te gustaría que te ayudemos hoy?\n` +
+      `• Desarrollo Web\n` +
+      `• Aplicaciones Móviles\n` +
+      `• Mantenimiento de PC`
+    );
+    res.header('Content-Type', 'text/xml');
+    return res.status(200).send(twiml.toString());
+  }
+
+  // Precios generales
+  if (lowerText.includes('precio') || lowerText.includes('costo') || lowerText.includes('cuanto')) {
+    twiml.message(
+      `Nuestros precios varían según el servicio:\n` +
+      `• Desarrollo Web: Desde $2,500 MXN\n` +
+      `• Mantenimiento PC: Desde $250 MXN\n\n` +
+      `¿Qué servicio te interesa para darte más detalles?`
+    );
+    res.header('Content-Type', 'text/xml');
+    return res.status(200).send(twiml.toString());
+  }
+
+  // Detección inteligente de servicios
+  const detectedService = detectService(incomingMsg);
+  if (detectedService && services[detectedService]) {
+    const service = services[detectedService];
+    twiml.message(
+      `*${service.name}*\n` +
+      `${service.description}\n\n` +
+      `💰 *Precios:* ${service.prices}\n\n` +
+      `¿Te gustaría agendar este servicio o prefieres hablar con un asesor?`
+    );
+    res.header('Content-Type', 'text/xml');
+    return res.status(200).send(twiml.toString());
+  }
+
+  // Mensaje por defecto si no entiende la palabra clave
+  twiml.message(
+    `Entendido. Te recuerdo nuestros servicios principales:\n` +
+    `• Desarrollo Web\n` +
+    `• Aplicaciones Móviles\n` +
+    `• Mantenimiento de PC\n\n` +
+    `Escribe el nombre de cualquiera de ellos para ver detalles y precios.`
+  );
+  
+  res.header('Content-Type', 'text/xml');
+  return res.status(200).send(twiml.toString());
+});
+
+// ===== ENDPOINT 2: DE VOZ PRINCIPAL =====
 app.all('/voice', (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
   
@@ -74,7 +133,7 @@ app.all('/voice', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT SECUNDARIO: /process-voice =====
+// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ =====
 app.all('/process-voice', (req, res) => {
   const speechResult = req.body?.SpeechResult || req.query?.SpeechResult;
   const twiml = new twilio.twiml.VoiceResponse();
@@ -111,7 +170,7 @@ app.all('/process-voice', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT DE CONTROL: /health =====
+// ===== ENDPOINT 4: HEALTH CHECK =====
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor independiente BioMey corriendo perfectamente' });
 });
