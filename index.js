@@ -156,7 +156,7 @@ app.get('/process-voice', async (req, res) => {
     // hacia tu correo personal verificado.
     await resend.emails.send({
       from: 'BioMeyBot <onboarding@resend.dev>',
-      to: 'soporte-biomey-tux@outlook.com',
+      to: '231183@ids.upchiapas.edu.mx',
       subject: `🚨 Nuevo Cliente Interesado - Tel: ${clientPhone}`,
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px; max-width: 600px;">
