@@ -107,41 +107,40 @@ app.all('/whatsapp', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 2: DE VOZ PRINCIPAL (SOPORTE COMPLETO HTTP POST/GET) =====
+// ===== ENDPOINT 2: DE VOZ PRINCIPAL (MÉTODO GET EXTENDIDO) =====
 app.all('/voice', (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
   
-  // Forzamos a que escuche voz en español de México con un margen de espera de 8 segundos
+  // Cambiado a method: 'GET' para evitar bloqueos de peticiones POST externas en Vercel
   const gather = twiml.gather({
     input: 'speech',
     timeout: 8,
     speechTimeout: 'auto',
     action: `${BASE_URL}/process-voice`,
-    method: 'POST',
+    method: 'GET',
     language: 'es-MX'
   });
   
   gather.say({ language: 'es-MX', voice: 'alice' }, `¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description} ¿En qué servicio te gustaría que te ayudemos hoy?`);
   
-  // Si se queda en silencio, le damos una segunda oportunidad antes de colgar
   twiml.say({ language: 'es-MX', voice: 'alice' }, 'No logré escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.');
   
   res.type('text/xml');
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ CORREGIDO =====
+// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ CORREGIDO (MÉTODO GET EXTENDIDO) =====
 app.all('/process-voice', (req, res) => {
-  const speechResult = req.body?.SpeechResult || req.query?.SpeechResult;
+  // Leemos prioritariamente de req.query porque forzamos el flujo por GET
+  const speechResult = req.query?.SpeechResult || req.body?.SpeechResult;
   const twiml = new twilio.twiml.VoiceResponse();
   
   if (!speechResult) {
-    // Si llegó aquí sin texto, le volvemos a preguntar
     const gather = twiml.gather({ 
       input: 'speech', 
       timeout: 6, 
       action: `${BASE_URL}/process-voice`, 
-      method: 'POST',
+      method: 'GET',
       language: 'es-MX' 
     });
     gather.say({ language: 'es-MX', voice: 'alice' }, 'No te escuché bien. ¿Podrías repetir qué servicio te interesa?');
@@ -177,8 +176,7 @@ app.all('/process-voice', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE SEGURO =====
-// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE SEGURO =====
+// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE SEGURO (MÉTODO GET CONFIGURADO) =====
 app.all('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const envAuthToken = process.env.TWILIO_AUTH_TOKEN;
@@ -195,9 +193,9 @@ app.all('/make-call', async (req, res) => {
 
     const call = await secureClient.calls.create({
       url: `${BASE_URL}/voice`,
-      method: 'GET', // 👈 FORZAMOS A TWILIO A QUE CONECTE POR GET COMO EN TU NAVEGADOR
+      method: 'GET', // Le indicamos a Twilio que consuma nuestro XML inicial usando GET
       to: '+528144384806', 
-       from: '+18312825317' // Tu número comprado en Twilio
+      from: '+18312825317' 
     });
 
     res.json({ status: 'success', message: 'Llamada iniciada correctamente a través de Vercel', callSid: call.sid });
