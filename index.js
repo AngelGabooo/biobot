@@ -49,37 +49,14 @@ function detectService(text) {
 
 const BASE_URL = 'https://biobot-six.vercel.app';
 
-// ===== RUTA RAÍZ EXPLÍCITA PARA PANTALLA =====
+// RUTA RAÍZ
 app.get('/', (req, res) => {
-  res.send('Servidor BioMey Activo en Vercel');
+  return res.status(200).send('Servidor BioMey Activo en Vercel');
 });
 
-// ===== ENDPOINT 1: BOT DE WHATSAPP =====
-app.all('/whatsapp', (req, res) => {
-  const incomingMsg = req.body?.Body || req.query?.Body || '';
-  const twiml = new twilio.twiml.MessagingResponse();
-  const lowerText = incomingMsg.toLowerCase().trim();
-
-  if (!lowerText || lowerText === 'hola' || lowerText === 'inicio') {
-    twiml.message(
-      `¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description}\n\n` +
-      `¿En qué servicio te gustaría que te ayudemos hoy?\n` +
-      `• Desarrollo Web\n` +
-      `• Aplicaciones Móviles\n` +
-      `• Mantenimiento de PC`
-    );
-    res.header('Content-Type', 'text/xml');
-    return res.status(200).send(twiml.toString());
-  }
-
-  res.header('Content-Type', 'text/xml');
-  return res.status(200).send(twiml.toString());
-});
-
-// ===== ENDPOINT 2: DE VOZ PRINCIPAL =====
-app.all('/voice', (req, res) => {
+// ENDPOINT 2: DE VOZ PRINCIPAL
+app.get('/voice', (req, res) => {
   res.type('text/xml');
-  
   const xmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Gather input="speech" timeout="5" speechTimeout="auto" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
@@ -87,14 +64,13 @@ app.all('/voice', (req, res) => {
     </Gather>
     <Say language="es-MX" voice="man">No logre escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.</Say>
 </Response>`;
-
   return res.status(200).send(xmlResponse);
 });
 
-// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ =====
-app.all('/process-voice', (req, res) => {
+// ENDPOINT 3: PROCESAMIENTO DE VOZ
+app.get('/process-voice', (req, res) => {
   res.type('text/xml');
-  const speechResult = req.query?.SpeechResult || req.body?.SpeechResult;
+  const speechResult = req.query?.SpeechResult || '';
   
   if (!speechResult) {
     const xmlRetry = `<?xml version="1.0" encoding="UTF-8"?>
@@ -130,8 +106,8 @@ app.all('/process-voice', (req, res) => {
   return res.status(200).send(xmlResult);
 });
 
-// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE =====
-app.all('/make-call', async (req, res) => {
+// ENDPOINT 4: DISPARAR LLAMADA SALIENTE
+app.get('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const envAuthToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -147,9 +123,9 @@ app.all('/make-call', async (req, res) => {
       to: '+528144384806', 
       from: '+18312825317' 
     });
-    res.json({ status: 'success', message: 'Llamada iniciada correctamente', callSid: call.sid });
+    return res.json({ status: 'success', message: 'Llamada iniciada correctamente', callSid: call.sid });
   } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+    return res.status(500).json({ status: 'error', message: error.message });
   }
 });
 
