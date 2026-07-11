@@ -107,23 +107,23 @@ app.all('/whatsapp', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 2: DE VOZ PRINCIPAL CORREGIDO =====
+// ===== ENDPOINT 2: DE VOZ PRINCIPAL (VOZ NEURAL MODERNA) =====
 app.all('/voice', (req, res) => {
   res.type('text/xml');
   
-  // Escribimos el XML de forma manual y nativa para asegurar cero errores de formato
+  // Usamos la voz es-MX-Neural-Rebecca para forzar el motor de voz de alta velocidad
   const xmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="8" speechTimeout="auto" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
-        <Say language="es-MX" voice="alice">¡Hola! Bienvenido a BioMey. Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos. ¿En qué servicio te gustaría que te ayudemos hoy?</Say>
+    <Gather input="speech" timeout="5" speechTimeout="auto" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
+        <Say language="es-MX" voice="es-MX-Neural-Rebecca">¡Hola! Bienvenido a BioMey. Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos. ¿En qué servicio te gustaría que te ayudemos hoy?</Say>
     </Gather>
-    <Say language="es-MX" voice="alice">No logré escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.</Say>
+    <Say language="es-MX" voice="es-MX-Neural-Rebecca">No logré escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.</Say>
 </Response>`;
 
   return res.status(200).send(xmlResponse);
 });
 
-// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ CORREGIDO =====
+// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ (VOZ NEURAL MODERNA) =====
 app.all('/process-voice', (req, res) => {
   res.type('text/xml');
   const speechResult = req.query?.SpeechResult || req.body?.SpeechResult;
@@ -131,10 +131,10 @@ app.all('/process-voice', (req, res) => {
   if (!speechResult) {
     const xmlRetry = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="6" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
-        <Say language="es-MX" voice="alice">No te escuché bien. ¿Podrías repetir qué servicio te interesa?</Say>
+    <Gather input="speech" timeout="5" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
+        <Say language="es-MX" voice="es-MX-Neural-Rebecca">No te escuché bien. ¿Podrías repetir qué servicio te interesa?</Say>
     </Gather>
-    <Say language="es-MX" voice="alice">Gracias por llamar a BioMey. Hasta luego.</Say>
+    <Say language="es-MX" voice="es-MX-Neural-Rebecca">Gracias por llamar a BioMey. Hasta luego.</Say>
     <Hangup/>
 </Response>`;
     return res.status(200).send(xmlRetry);
@@ -155,7 +155,7 @@ app.all('/process-voice', (req, res) => {
 
   const xmlResult = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say language="es-MX" voice="alice">${responseText}</Say>
+    <Say language="es-MX" voice="es-MX-Neural-Rebecca">${responseText}</Say>
     <Hangup/>
 </Response>`;
 
