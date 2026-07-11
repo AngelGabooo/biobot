@@ -178,6 +178,7 @@ app.all('/process-voice', (req, res) => {
 });
 
 // ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE SEGURO =====
+// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE SEGURO =====
 app.all('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const envAuthToken = process.env.TWILIO_AUTH_TOKEN;
@@ -194,7 +195,8 @@ app.all('/make-call', async (req, res) => {
 
     const call = await secureClient.calls.create({
       url: `${BASE_URL}/voice`,
-      to: '+528144384806', // Tu número verificado
+      method: 'GET', // 👈 FORZAMOS A TWILIO A QUE CONECTE POR GET COMO EN TU NAVEGADOR
+      to: '+528144384806', 
        from: '+18312825317' // Tu número comprado en Twilio
     });
 
