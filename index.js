@@ -49,11 +49,34 @@ function detectService(text) {
 
 const BASE_URL = 'https://biobot-six.vercel.app';
 
-// RUTA RAÍZ PARA VERIFICAR QUE VERCEL RESPONDE
+// ===== RUTA RAÍZ EXPLÍCITA PARA PANTALLA =====
 app.get('/', (req, res) => {
   res.send('Servidor BioMey Activo en Vercel');
 });
 
+// ===== ENDPOINT 1: BOT DE WHATSAPP =====
+app.all('/whatsapp', (req, res) => {
+  const incomingMsg = req.body?.Body || req.query?.Body || '';
+  const twiml = new twilio.twiml.MessagingResponse();
+  const lowerText = incomingMsg.toLowerCase().trim();
+
+  if (!lowerText || lowerText === 'hola' || lowerText === 'inicio') {
+    twiml.message(
+      `¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description}\n\n` +
+      `¿En qué servicio te gustaría que te ayudemos hoy?\n` +
+      `• Desarrollo Web\n` +
+      `• Aplicaciones Móviles\n` +
+      `• Mantenimiento de PC`
+    );
+    res.header('Content-Type', 'text/xml');
+    return res.status(200).send(twiml.toString());
+  }
+
+  res.header('Content-Type', 'text/xml');
+  return res.status(200).send(twiml.toString());
+});
+
+// ===== ENDPOINT 2: DE VOZ PRINCIPAL =====
 app.all('/voice', (req, res) => {
   res.type('text/xml');
   
@@ -68,6 +91,7 @@ app.all('/voice', (req, res) => {
   return res.status(200).send(xmlResponse);
 });
 
+// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ =====
 app.all('/process-voice', (req, res) => {
   res.type('text/xml');
   const speechResult = req.query?.SpeechResult || req.body?.SpeechResult;
@@ -106,6 +130,7 @@ app.all('/process-voice', (req, res) => {
   return res.status(200).send(xmlResult);
 });
 
+// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE =====
 app.all('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const envAuthToken = process.env.TWILIO_AUTH_TOKEN;
