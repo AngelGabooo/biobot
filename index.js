@@ -2,6 +2,7 @@ const express = require('express');
 const twilio = require('twilio');
 const cors = require('cors');
 const { Resend } = require('resend');
+const { GoogleGenAI } = require('@google/genai');
 
 const app = express();
 
@@ -9,8 +10,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Inicializamos Resend con la variable de entorno
+// Inicialización de servicios externos
 const resend = new Resend(process.env.RESEND_API_KEY);
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const companyInfo = {
   name: 'BioMey',
@@ -20,87 +22,24 @@ const companyInfo = {
   website: 'https://bio-mey-com-five.vercel.app/'
 };
 
-// Catálogo de servicios. La clave se usa como identificador interno (query param "key").
 const services = {
-  landing: {
-    name: 'Landing Page',
-    prices: '2,500 pesos, en dos exhibiciones',
-    description: 'Ideal para campañas publicitarias y promociones. Incluye diseño responsivo, formulario, botón de WhatsApp y entrega en 5 días.',
-    keywords: ['landing', 'landing page', 'página de una sola vista', 'promociones']
-  },
-  negocios: {
-    name: 'Página Web para Negocios',
-    prices: '6,500 pesos, en dos exhibiciones',
-    description: 'Para restaurantes, consultorios y pequeños negocios. Incluye hasta 6 secciones, dominio y hosting por un año, y correos empresariales.',
-    keywords: ['negocios', 'negocio', 'restaurante', 'cafetería', 'consultorio', 'escuela', 'gimnasio']
-  },
-  profesional: {
-    name: 'Página Web Profesional',
-    prices: '11,500 pesos, en dos exhibiciones',
-    description: 'Para empresas que desean destacar. Incluye hasta 15 secciones, blog administrable, portafolio, testimonios, SEO avanzado y chat flotante.',
-    keywords: ['profesional', 'empresa profesional', 'blog administrable', 'seo avanzado']
-  },
-  empresarial: {
-    name: 'Página Web Empresarial',
-    prices: '18,500 pesos, en dos exhibiciones',
-    description: 'Plataforma completa preparada para crecer. Incluye panel administrativo CMS, catálogo de productos, agenda de citas e integración con CRM.',
-    keywords: ['empresarial', 'plataforma completa', 'catálogo', 'crm', 'cms']
-  },
-  ecommerce: {
-    name: 'Tienda en Línea o E-commerce',
-    prices: 'desde 15,000 pesos',
-    description: 'Una plataforma completa con pasarela de pagos para vender tus productos en internet.',
-    keywords: ['tienda', 'tienda en línea', 'ecommerce', 'comprar', 'vender productos', 'pasarela']
-  },
-  mantenimiento_preventivo: {
-    name: 'Mantenimiento Preventivo de PC',
-    prices: 'desde 250 pesos',
-    description: 'Evita fallas futuras. Incluye limpieza interna y externa, optimización del sistema, revisión de componentes y actualización de controladores.',
-    keywords: ['preventivo', 'limpieza', 'limpieza física', 'optimizar', 'actualizar controladores', 'lento']
-  },
-  mantenimiento_correctivo: {
-    name: 'Mantenimiento Correctivo de PC',
-    prices: 'depende del diagnóstico',
-    description: 'Soluciona fallas y errores. Incluye reparación de hardware, eliminación de virus o malware, y recuperación de datos.',
-    keywords: ['correctivo', 'reparación', 'reparar', 'no prende', 'pantalla azul', 'virus', 'malware', 'recuperar datos']
-  },
-  software: {
-    name: 'Instalación y Configuración de Software',
-    prices: 'bajo cotización',
-    description: 'Instalamos y configuramos Windows, drivers, impresoras, paquetería de Office y programas especializados al 100 por ciento.',
-    keywords: ['software', 'programas', 'instalar', 'windows', 'office', 'word', 'excel', 'drivers', 'impresora']
-  },
-  redes: {
-    name: 'Soporte de Redes e Internet',
-    prices: 'bajo cotización',
-    description: 'Configuración y solución de problemas de conexión de red y señal de internet.',
-    keywords: ['redes', 'internet', 'wifi', 'conexión', 'no tengo internet', 'router']
-  }
+  landing: { name: 'Landing Page', prices: '2,500 pesos', basePrice: 2500 },
+  negocios: { name: 'Página Web para Negocios', prices: '6,500 pesos', basePrice: 6500 },
+  profesional: { name: 'Página Web Profesional', prices: '11,500 pesos', basePrice: 11500 },
+  empresarial: { name: 'Página Web Empresarial', prices: '18,500 pesos', basePrice: 18500 },
+  ecommerce: { name: 'Tienda en Línea o E-commerce', prices: 'desde 15,000 pesos', basePrice: 15000 },
+  mantenimiento_preventivo: { name: 'Mantenimiento Preventivo de PC', prices: 'desde 250 pesos', basePrice: 250 },
+  mantenimiento_correctivo: { name: 'Mantenimiento Correctivo de PC', prices: 'depende del diagnóstico', basePrice: 0 },
+  software: { name: 'Instalación y Configuración de Software', prices: 'bajo cotización', basePrice: 0 },
+  redes: { name: 'Soporte de Redes e Internet', prices: 'bajo cotización', basePrice: 0 }
 };
-
-// Mapea el número de submenú presionado -> clave del servicio
-const webMenuMap = { '1': 'landing', '2': 'negocios', '3': 'profesional', '4': 'empresarial', '5': 'ecommerce' };
-const mantenimientoMenuMap = { '1': 'mantenimiento_preventivo', '2': 'mantenimiento_correctivo' };
-const soporteMenuMap = { '1': 'software', '2': 'redes' };
-
-function detectServiceBySpeech(text) {
-  const lowerText = (text || '').toLowerCase();
-  for (const [key, service] of Object.entries(services)) {
-    for (const keyword of service.keywords) {
-      if (lowerText.includes(keyword)) return key;
-    }
-  }
-  return null;
-}
 
 const BASE_URL = 'https://biobot-six.vercel.app';
 const VOICE = { language: 'es-MX', voice: 'es-MX-Standard-A' };
 
-// Frase legal + recordatorio de versión beta / Pro. Se reutiliza en varios puntos.
 const AVISO_LEGAL =
-  'Antes de continuar, te informamos que esta llamada está siendo monitoreada y grabada con fines de calidad. ' +
-  'Recuerda que estás utilizando la versión beta de prueba de nuestro asistente virtual BioMey. ' +
-  'La versión Pro ofrece muchas más funciones, personalización y automatización para tu negocio. ';
+  'Antes de continuar, te informamos que esta llamada está siendo monitoreada con fines de calidad. ' +
+  'Recuerda que estás utilizando la versión beta de prueba de nuestro asistente virtual BioMey. ';
 
 function say(text) {
   return `<Say language="${VOICE.language}" voice="${VOICE.voice}">${text}</Say>`;
@@ -116,221 +55,167 @@ app.get('/', (req, res) => {
 });
 
 // ============================================================
-// ENDPOINT: MENÚ PRINCIPAL DE VOZ
+// 1. BIENVENIDA Y CAPTURA NATURAL DE VOZ
 // ============================================================
 app.get('/voice', (req, res) => {
   res.type('text/xml');
-
-  const menu =
-    'Bienvenido a BioMey, tu agencia de soluciones digitales. ' +
-    'Para páginas web, presiona 1. ' +
-    'Para mantenimiento de computadoras, presiona 2. ' +
-    'Para instalación de software o soporte de redes, presiona 3. ' +
-    'Para repetir este menú, presiona 9. ' +
-    'También puedes decir en voz alta el servicio que buscas.';
-
-  const body =
-    `<Gather input="dtmf speech" numDigits="1" timeout="6" speechTimeout="auto" action="${BASE_URL}/menu-principal" method="GET" language="es-MX">
-        ${say(AVISO_LEGAL + menu)}
+  const saludo = 'Bienvenido a BioMey, tu agencia de soluciones digitales. Cuéntame con qué servicio o problema de software o páginas web te podemos ayudar hoy.';
+  
+  const body = `
+    <Gather input="speech" timeout="5" speechTimeout="auto" action="${BASE_URL}/process-ai" method="POST" language="es-MX">
+        ${say(AVISO_LEGAL + saludo)}
     </Gather>
-    ${say('No recibimos ninguna respuesta. Puedes llamarnos de nuevo cuando gustes. Gracias por contactar a BioMey.')}
-    <Hangup/>`;
-
+    ${say('No logré escucharte. Puedes llamarnos de nuevo cuando gustes.')}
+    <Hangup/>
+  `;
   return res.status(200).send(xml(body));
 });
 
 // ============================================================
-// ENDPOINT: PROCESA SELECCIÓN DEL MENÚ PRINCIPAL
+// 2. MOTOR DE CONVERSACIÓN NATURAL CON GEMINI
 // ============================================================
-app.get('/menu-principal', (req, res) => {
+app.post('/process-ai', async (req, res) => {
   res.type('text/xml');
-  const digit = req.query?.Digits;
-  const speechResult = req.query?.SpeechResult;
+  const speechResult = req.body?.SpeechResult || '';
+  const clientPhone = req.body?.From || 'Desconocido';
 
-  // Si el cliente dijo el servicio por voz, saltamos directo al detalle (atajo "inteligente")
-  if (!digit && speechResult) {
-    const detectedKey = detectServiceBySpeech(speechResult);
-    if (detectedKey) {
-      const body = redirectToDetail(detectedKey);
-      return res.status(200).send(xml(body));
+  if (!speechResult) {
+    return res.status(200).send(xml(`${say('No te escuché bien.')}<Redirect method="GET">${BASE_URL}/voice</Redirect>`));
+  }
+
+  try {
+    // Prompt estructurado para forzar a Gemini a devolver una respuesta JSON limpia
+    const systemInstruction = `
+      Eres el asistente de voz IA de la empresa BioMey. Tu trabajo es escuchar lo que dice el cliente y responderle con amabilidad, fluidez y brevedad (máximo 2 oraciones por voz).
+      Analiza el texto y clasifícalo en base a este catálogo: ${JSON.stringify(services)}.
+      Debes devolver ÚNICAMENTE un objeto JSON estructurado con el siguiente formato:
+      {
+        "reply": "Tu respuesta hablada para el cliente explicando brevemente el servicio y su costo.",
+        "detectedKey": "La clave del servicio detectado (ej: 'landing', 'mantenimiento_correctivo', etc. o 'none' si es genérico)",
+        "isUrgent": true/false (pon true si el cliente está desesperado, menciona urgencia, caída de sistema o pérdida de datos)
+      }
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: speechResult,
+      config: {
+        systemInstruction: systemInstruction,
+        responseMimeType: 'application/json'
+      }
+    });
+
+    const aiData = JSON.parse(response.text.trim());
+    
+    // Si se detecta urgencia crítica ("no prende", "perdí datos"), enviamos alerta inmediata y/o transferimos
+    if (aiData.isUrgent) {
+      // Enviar email de urgencia en segundo plano
+      enviarEmailReporte(clientPhone, aiData.detectedKey, speechResult, 'CRÍTICA / URGENTE');
+      
+      const bodyUrgente = `
+        ${say('Detecto que esto es urgente. ' + aiData.reply + ' Espera un segundo en la línea mientras intento enlazar tu llamada con un ingeniero de soporte.')}
+        <!-- Coloca tu número de celular real aquí abajo si deseas transferir llamadas críticas en vivo -->
+        <!-- <Dial>+528144384806</Dial> -->
+        <Hangup/>
+      `;
+      return res.status(200).send(xml(bodyUrgente));
     }
+
+    // --- COTIZACIÓN DINÁMICA POR DTMF ---
+    // Si el cliente está cotizando páginas web avanzadas o e-commerce, hacemos preguntas interactivas
+    if (aiData.detectedKey === 'ecommerce' || aiData.detectedKey === 'profesional') {
+      const bodyMenuDinámico = `
+        ${say(aiData.reply)}
+        <Gather input="dtmf" numDigits="1" timeout="5" action="${BASE_URL}/cotizacion-dinamica?key=${aiData.detectedKey}&amp;speech=${encodeURIComponent(speechResult)}" method="POST">
+            ${say('Para darte un precio más preciso en este instante, por favor presiona 1 si requieres integración de cobros con tarjetas en línea, o presiona 2 si solo requieres un catálogo informativo.')}
+        </Gather>
+        ${say('Entendido, analizaremos tu caso.')}
+        <Redirect method="POST">${BASE_URL}/finalizar-llamada?key=${aiData.detectedKey}&amp;speech=${encodeURIComponent(speechResult)}</Redirect>
+      `;
+      return res.status(200).send(xml(bodyMenuDinámico));
+    }
+
+    // Flujo normal para otros servicios detectados
+    enviarEmailReporte(clientPhone, aiData.detectedKey, speechResult, 'Normal');
+    
+    const bodyNormal = `
+      ${say(aiData.reply + ' Alguien de nuestro equipo te contactará de inmediato en este número telefónico.')}
+      <Hangup/>
+    `;
+    return res.status(200).send(xml(bodyNormal));
+
+  } catch (error) {
+    console.error('Error en Gemini Engine:', error.message);
+    return res.status(200).send(xml(`${say('Entendido. Registramos tu solicitud. Un asesor se comunicará contigo.')}<Hangup/>`));
+  }
+});
+
+// ============================================================
+// 3. PROCESAMIENTO DE COTIZACIÓN DINÁMICA (DTMF)
+// ============================================================
+app.post('/cotizacion-dinamica', async (req, res) => {
+  res.type('text/xml');
+  const digit = req.body?.Digits;
+  const key = req.query?.key;
+  const originalSpeech = req.query?.speech || '';
+  const clientPhone = req.body?.From || 'Desconocido';
+
+  let precioCalculado = services[key]?.basePrice || 0;
+  let detalleExtra = '';
+
+  if (digit === '1') {
+    precioCalculado += 8000; // Costo extra por pasarelas de pago
+    detalleExtra = 'Con pasarela de pagos integrada (Tarjetas/PayPal).';
+  } else {
+    detalleExtra = 'Solo catálogo / informativo.';
   }
 
-  let body;
-  switch (digit) {
-    case '1':
-      body =
-        `<Gather input="dtmf" numDigits="1" timeout="6" action="${BASE_URL}/menu-web" method="GET">
-            ${say(
-              'Páginas web. Landing Page, presiona 1. Página para negocios, presiona 2. ' +
-              'Página profesional, presiona 3. Página empresarial, presiona 4. ' +
-              'Tienda en línea o E-commerce, presiona 5. Para regresar al menú anterior, presiona 0.'
-            )}
-        </Gather>
-        ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
-        <Hangup/>`;
-      break;
+  // Enviar email con los datos dinámicos extraídos del teclado
+  enviarEmailReporte(clientPhone, key, `${originalSpeech} | Opcion DTMF: ${detalleExtra}`, `Cotización Especial: $${precioCalculado} MXN`);
 
-    case '2':
-      body =
-        `<Gather input="dtmf" numDigits="1" timeout="6" action="${BASE_URL}/menu-mantenimiento" method="GET">
-            ${say(
-              'Mantenimiento de computadoras. Mantenimiento preventivo, presiona 1. ' +
-              'Mantenimiento correctivo o reparación, presiona 2. Para regresar al menú anterior, presiona 0.'
-            )}
-        </Gather>
-        ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
-        <Hangup/>`;
-      break;
-
-    case '3':
-      body =
-        `<Gather input="dtmf" numDigits="1" timeout="6" action="${BASE_URL}/menu-soporte" method="GET">
-            ${say(
-              'Software y redes. Instalación y configuración de software, presiona 1. ' +
-              'Soporte de redes e internet, presiona 2. Para regresar al menú anterior, presiona 0.'
-            )}
-        </Gather>
-        ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
-        <Hangup/>`;
-      break;
-
-    case '9':
-      body = redirectToVoice();
-      break;
-
-    default:
-      body =
-        `${say('No reconocimos esa opción.')}
-        ${redirectToVoice()}`;
-  }
-
-  return res.status(200).send(xml(body));
+  const mensajeCotizacion = `Perfecto. Con esa opción el costo estimado aproximado sería de ${precioCalculado} pesos. Un especialista de BioMey te contactará en unos minutos para formalizar tu propuesta. Muchas gracias por tu tiempo.`;
+  
+  return res.status(200).send(xml(`${say(mensajeCotizacion)}<Hangup/>`));
 });
 
-// ============================================================
-// SUBMENÚS: procesan la elección final de servicio
-// ============================================================
-app.get('/menu-web', (req, res) => {
-  res.type('text/xml');
-  const digit = req.query?.Digits;
-  if (digit === '0') return res.status(200).send(xml(redirectToVoice()));
-  const key = webMenuMap[digit];
-  const body = key ? redirectToDetail(key) : invalidOptionRetry(`${BASE_URL}/voice`);
-  return res.status(200).send(xml(body));
-});
-
-app.get('/menu-mantenimiento', (req, res) => {
-  res.type('text/xml');
-  const digit = req.query?.Digits;
-  if (digit === '0') return res.status(200).send(xml(redirectToVoice()));
-  const key = mantenimientoMenuMap[digit];
-  const body = key ? redirectToDetail(key) : invalidOptionRetry(`${BASE_URL}/voice`);
-  return res.status(200).send(xml(body));
-});
-
-app.get('/menu-soporte', (req, res) => {
-  res.type('text/xml');
-  const digit = req.query?.Digits;
-  if (digit === '0') return res.status(200).send(xml(redirectToVoice()));
-  const key = soporteMenuMap[digit];
-  const body = key ? redirectToDetail(key) : invalidOptionRetry(`${BASE_URL}/voice`);
-  return res.status(200).send(xml(body));
-});
-
-// ============================================================
-// ENDPOINT: DETALLE DE SERVICIO (precio, descripción) + confirmación
-// ============================================================
-app.get('/detalle-servicio', (req, res) => {
+app.post('/finalizar-llamada', async (req, res) => {
   res.type('text/xml');
   const key = req.query?.key;
-  const service = services[key];
+  const originalSpeech = req.query?.speech || '';
+  const clientPhone = req.body?.From || 'Desconocido';
 
-  if (!service) {
-    return res.status(200).send(xml(redirectToVoice()));
-  }
-
-  const detalle =
-    `Has seleccionado: ${service.name}. ${service.description} Su costo es de ${service.prices}. ` +
-    'Si deseas que un especialista tome tus datos y te contacte, presiona 1. ' +
-    'Para regresar al menú principal, presiona 9.';
-
-  const body =
-    `<Gather input="dtmf" numDigits="1" timeout="6" action="${BASE_URL}/confirmar?key=${key}" method="GET">
-        ${say(detalle)}
-    </Gather>
-    ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
-    <Hangup/>`;
-
-  return res.status(200).send(xml(body));
+  enviarEmailReporte(clientPhone, key, originalSpeech, 'Normal (No seleccionó extra)');
+  return res.status(200).send(xml(`${say('Perfecto. Tus datos han sido enviados a soporte. Un asesor te llamará en breve. Hasta luego.')}<Hangup/>`));
 });
 
 // ============================================================
-// ENDPOINT: CONFIRMACIÓN FINAL + ENVÍO DE CORREO
+// HELPER: FUNCIÓN ASÍNCRONA DE ENVÍO DE EMAIL (RESEND)
 // ============================================================
-app.get('/confirmar', async (req, res) => {
-  res.type('text/xml');
-  const digit = req.query?.Digits;
-  const key = req.query?.key;
-  const service = services[key];
-  const clientPhone = req.query?.From || 'Desconocido';
-
-  if (digit === '9' || !service) {
-    return res.status(200).send(xml(redirectToVoice()));
-  }
-
-  if (digit !== '1') {
-    return res.status(200).send(
-      xml(`${say('No reconocimos esa opción. Gracias por llamar a BioMey.')}<Hangup/>`)
-    );
-  }
-
-  // Envío de correo vía Resend con el servicio detectado y el teléfono del cliente
+async function enviarEmailReporte(phone, serviceKey, textoCliente, prioridad) {
+  const serviceName = services[serviceKey]?.name || 'Consulta General / Desconocido';
   try {
     await resend.emails.send({
       from: 'BioMeyBot <onboarding@resend.dev>',
       to: '231183@ids.upchiapas.edu.mx',
-      subject: `🚨 Nuevo Cliente Interesado - Tel: ${clientPhone}`,
+      subject: `[${prioridad}] 🚨 Nuevo Reporte Bot - Tel: ${phone}`,
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px; max-width: 600px;">
-          <h2 style="color: #4f46e5;">📱 Nuevo Reporte de Llamada Bot - BioMey</h2>
+          <h2 style="color: #4f46e5;">📱 Reporte de Inteligencia Artificial - BioMey</h2>
           <hr/>
-          <p><strong>👤 Teléfono del Cliente:</strong> ${clientPhone}</p>
-          <p><strong>🔍 Servicio Seleccionado:</strong> ${service.name}</p>
-          <p><strong>💲 Precio:</strong> ${service.prices}</p>
+          <p><strong>👤 Teléfono del Cliente:</strong> ${phone}</p>
+          <p><strong>🔍 Servicio Detectado:</strong> ${serviceName}</p>
+          <p><strong>⚠️ Nivel/Prioridad:</strong> ${prioridad}</p>
+          <p><strong>🗣️ Lo que dijo el cliente:</strong> "${textoCliente}"</p>
           <p><strong>🗓️ Fecha:</strong> ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}</p>
           <hr/>
-          <p style="font-size: 12px; color: #666;">Reporte procesado de forma segura vía Resend API. Selección hecha por menú de teclado (DTMF).</p>
+          <p style="font-size: 12px; color: #666;">Procesado de forma inteligente impulsado por Gemini 2.5 y Resend API.</p>
         </div>
       `
     });
-    console.log('Correo enviado con éxito usando Resend API.');
-  } catch (emailError) {
-    console.error('Error crítico en Resend API:', emailError.message);
+    console.log('Correo con IA enviado de forma exitosa.');
+  } catch (err) {
+    console.error('Error al enviar reporte de correo:', err.message);
   }
-
-  const despedida =
-    `Perfecto. Hemos registrado tu interés en ${service.name} de manera exitosa. ` +
-    'Un especialista de BioMey se comunicará contigo a este número en unos minutos para darte una atención personalizada. ' +
-    'Recuerda que esta fue una demostración de nuestra versión beta; la versión Pro incluye muchas más funciones para tu negocio. ' +
-    'Muchas gracias por tu tiempo.';
-
-  return res.status(200).send(xml(`${say(despedida)}<Hangup/>`));
-});
-
-// ============================================================
-// Helpers de TwiML reutilizables
-// ============================================================
-function redirectToVoice() {
-  return `<Redirect method="GET">${BASE_URL}/voice</Redirect>`;
-}
-
-function redirectToDetail(key) {
-  return `<Redirect method="GET">${BASE_URL}/detalle-servicio?key=${key}</Redirect>`;
-}
-
-function invalidOptionRetry(url) {
-  return `${say('No reconocimos esa opción.')}<Redirect method="GET">${url}</Redirect>`;
 }
 
 // ============================================================
@@ -351,9 +236,6 @@ app.get('/make-call', async (req, res) => {
       method: 'GET',
       to: '+528144384806',
       from: '+18312825317'
-      // Para habilitar grabación REAL de la llamada (no solo el aviso hablado),
-      // descomenta la siguiente línea:
-      // record: true,
     });
     return res.json({ status: 'success', message: 'Llamada iniciada correctamente', callSid: call.sid });
   } catch (error) {
