@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+// Optimizado para los datos que envía Twilio
 app.use(express.urlencoded({ extended: true }));
 
 const companyInfo = {
@@ -51,48 +52,63 @@ function detectService(text) {
   return null;
 }
 
+// URL base estática fija para evitar errores de proxy/headers en Vercel
+const BASE_URL = 'https://biobot-six.vercel.app';
+
 // Endpoints
 app.post('/voice', (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
   
   const gather = twiml.gather({
-    input: 'speech', timeout: 5, speechTimeout: 'auto',
-    action: `${baseUrl}/process-voice`, language: 'es-MX', enhanced: true,
+    input: 'speech',
+    timeout: 5,
+    speechTimeout: 'auto',
+    action: `${BASE_URL}/process-voice`,
+    language: 'es-MX',
+    enhanced: true,
   });
   
   gather.say(`¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description} ¿En qué servicio te gustaría que te ayudemos hoy?`);
-  twiml.say(`No te he escuchado. Escríbenos por WhatsApp al ${companyInfo.phone}.`);
+  twiml.say(`No te he escuchado. Escríbenos por WhatsApp al ${companyInfo.phone}. Gracias por llamar.`);
   
-  res.type('text/xml').send(twiml.toString());
+  res.header('Content-Type', 'text/xml');
+  res.status(200).send(twiml.toString());
 });
 
 app.post('/process-voice', (req, res) => {
   const speechResult = req.body.SpeechResult;
   const twiml = new twilio.twiml.VoiceResponse();
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
   
   if (!speechResult) {
-    const gather = twiml.gather({ input: 'speech', timeout: 5, action: `${baseUrl}/process-voice`, language: 'es-MX' });
-    gather.say('No te he escuchado bien. ¿Puedes repetir?');
-    return res.type('text/xml').send(twiml.toString());
+    const gather = twiml.gather({ 
+      input: 'speech', 
+      timeout: 5, 
+      action: `${BASE_URL}/process-voice`, 
+      language: 'es-MX' 
+    });
+    gather.say('No te he escuchado bien. ¿Puedes repetir qué servicio te interesa?');
+    res.header('Content-Type', 'text/xml');
+    return res.status(200).send(twiml.toString());
   }
 
   const lowerText = speechResult.toLowerCase();
   if (lowerText.includes('precio') || lowerText.includes('costo')) {
     twiml.say('Nuestros precios varían. Diseño web desde $2,500 y mantenimiento desde $250.');
-    return res.type('text/xml').send(twiml.toString());
+    res.header('Content-Type', 'text/xml');
+    return res.status(200).send(twiml.toString());
   }
 
   const detectedService = detectService(speechResult);
   if (detectedService && services[detectedService]) {
     const service = services[detectedService];
     twiml.say(`Elegiste ${service.name}. ${service.description} Precios: ${service.prices}`);
-    return res.type('text/xml').send(twiml.toString());
+    res.header('Content-Type', 'text/xml');
+    return res.status(200).send(twiml.toString());
   }
 
-  twiml.say('Gracias por llamarnos. Nos comunicaremos contigo pronto.');
-  res.type('text/xml').send(twiml.toString());
+  twiml.say('Gracias por llamarnos. Nos comunicaremos contigo pronto. ¡Hasta luego!');
+  res.header('Content-Type', 'text/xml');
+  res.status(200).send(twiml.toString());
 });
 
 app.get('/health', (req, res) => {
