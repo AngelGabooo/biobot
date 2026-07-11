@@ -161,14 +161,12 @@ app.get('/process-voice', async (req, res) => {
   if (envAccountSid && envAuthToken) {
     try {
       const client = twilio(envAccountSid.trim(), envAuthToken.trim());
+      
+      // Enviamos un mensaje de texto plano y directo compatible con el Sandbox
       await client.messages.create({
         from: TWILIO_NUMERO_WHATSAPP,
         to: `whatsapp:${MI_NUMERO_WHATSAPP}`,
-        body: `📱 *Nuevo Reporte de Llamada - BioMey*\n\n` +
-              `👤 *Cliente:* ${clientPhone}\n` +
-              `🔍 *Intención:* ${serviceDetectedName}\n` +
-              `🗣️ *Lo que dijo:* "${speechResult}"\n\n` +
-              `⏰ *Acción:* Llamarle de inmediato para cerrar la venta.`
+        body: `BioMey Reporte - Cliente: ${clientPhone}. Intencion: ${serviceDetectedName}. Dijo: ${speechResult}`
       });
       console.log('Notificación de WhatsApp enviada exitosamente.');
     } catch (wsError) {
