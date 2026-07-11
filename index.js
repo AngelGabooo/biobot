@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: true }));
 const companyInfo = {
   name: 'BioMey',
   description: 'Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos.',
-  phone: '33 4981 2319',
+  phone: '8144384806',
   email: 'soporte-biomey-tux@outlook.com',
   website: 'https://bio-mey-com-five.vercel.app/'
 };
@@ -189,8 +189,8 @@ app.all('/make-call', async (req, res) => {
 
     const call = await secureClient.calls.create({
       url: `${BASE_URL}/voice`,
-      to: '+523349812319', // Tu número verificado
-      from: '+16802013265' // Tu número comprado en Twilio
+      to: '+528144384806', // Tu número verificado
+      from: '+18312825317' // Tu número comprado en Twilio
     });
 
     res.json({ status: 'success', message: 'Llamada iniciada correctamente a través de Vercel', callSid: call.sid });
