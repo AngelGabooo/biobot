@@ -51,7 +51,7 @@ function detectService(text) {
   return null;
 }
 
-// URL base estática fija para evitar errores de proxy/headers en Vercel
+// URL base estática fija de tu backend en Vercel
 const BASE_URL = 'https://biobot-six.vercel.app';
 
 // ===== ENDPOINT 1: BOT DE WHATSAPP =====
@@ -170,22 +170,30 @@ app.all('/process-voice', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE (CREDANCIALES INYECTADAS) =====
+// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE SEGURO =====
 app.all('/make-call', async (req, res) => {
-  // Inicialización directa y forzada para evitar fallos de lectura en la nube
-  const directAccountSid = 'AC904716ed4cf057b830a75deae93dd4b';
-  const directAuthToken = 'b89d64a9800b3e68aaa14871a98cb496';
-  
-  try {
-    const directClient = twilio(directAccountSid, directAuthToken);
+  const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
+  const envAuthToken = process.env.TWILIO_AUTH_TOKEN;
 
-    const call = await directClient.calls.create({
+  // Verificación de variables en Vercel
+  if (!envAccountSid || !envAuthToken) {
+    return res.status(500).json({ 
+      status: 'error', 
+      message: 'Las variables de entorno TWILIO_ACCOUNT_SID o TWILIO_AUTH_TOKEN no están configuradas en el panel de Vercel.' 
+    });
+  }
+
+  try {
+    // Inicialización interna usando .trim() para sanitizar strings de espacios fantasmas
+    const secureClient = twilio(envAccountSid.trim(), envAuthToken.trim());
+
+    const call = await secureClient.calls.create({
       url: `${BASE_URL}/voice`,
       to: '+528144384806', // Tu número verificado
-      from: '+16802013265' // Tu número Twilio
+      from: '+16802013265' // Tu número comprado en Twilio
     });
 
-    res.json({ status: 'success', message: 'Llamada iniciada directamente', callSid: call.sid });
+    res.json({ status: 'success', message: 'Llamada iniciada correctamente a través de Vercel', callSid: call.sid });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
