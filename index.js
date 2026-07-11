@@ -21,21 +21,21 @@ const services = {
   'web': {
     name: 'Desarrollo Web',
     description: 'Creamos páginas web profesionales, modernas y optimizadas para Google.',
-    prices: 'Desde $2,500 MXN para landing pages, $6,500 para sitios de negocios, $11,500 para sitios profesionales y $18,500 para sitios empresariales.',
+    prices: 'Desde 2,500 pesos para landing pages, 6,500 para sitios de negocios, 11,500 para sitios profesionales y 18,500 para sitios empresariales.',
     details: 'Incluye diseño responsivo, optimización SEO, formularios de contacto, integración con redes sociales y soporte post-lanzamiento.',
     keywords: ['web', 'página', 'sitio', 'landing', 'pagina', 'diseño', 'desarrollo']
   },
   'app': {
     name: 'Aplicaciones Móviles',
     description: 'Desarrollamos apps para Android e iOS con diseño intuitivo y alto rendimiento.',
-    prices: 'Desde $30,000 MXN para apps básicas, dependiendo de la complejidad.',
+    prices: 'Desde 30,000 pesos para apps básicas, dependiendo de la complejidad.',
     details: 'Incluye diseño UX/UI, desarrollo nativo, notificaciones push e integración con APIs.',
     keywords: ['app', 'aplicación', 'movil', 'móvil', 'android', 'ios', 'celular']
   },
   'pc': {
     name: 'Mantenimiento de PC',
     description: 'Mantenimiento preventivo y correctivo para que tu equipo funcione como nuevo.',
-    prices: 'Desde $250 MXN para mantenimiento preventivo básico.',
+    prices: 'Desde 250 pesos para mantenimiento preventivo básico.',
     details: 'Incluye limpieza física y de software, optimización, eliminación virus y respaldo.',
     keywords: ['pc', 'computadora', 'mantenimiento', 'limpieza', 'virus', 'laptop']
   }
@@ -107,23 +107,23 @@ app.all('/whatsapp', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 2: DE VOZ PRINCIPAL (VOZ NEURAL MODERNA) =====
+// ===== ENDPOINT 2: DE VOZ PRINCIPAL (VOZ NATIVA GARANTIZADA) =====
 app.all('/voice', (req, res) => {
   res.type('text/xml');
   
-  // Usamos la voz es-MX-Neural-Rebecca para forzar el motor de voz de alta velocidad
+  // Usamos voice="man" con language="es-MX" que funciona en cualquier cuenta estándar
   const xmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Gather input="speech" timeout="5" speechTimeout="auto" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
-        <Say language="es-MX" voice="es-MX-Neural-Rebecca">¡Hola! Bienvenido a BioMey. Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos. ¿En qué servicio te gustaría que te ayudemos hoy?</Say>
+        <Say language="es-MX" voice="man">Hola. Bienvenido a BioMey. Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos. En que servicio te gustaría que te ayudemos hoy.</Say>
     </Gather>
-    <Say language="es-MX" voice="es-MX-Neural-Rebecca">No logré escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.</Say>
+    <Say language="es-MX" voice="man">No logre escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.</Say>
 </Response>`;
 
   return res.status(200).send(xmlResponse);
 });
 
-// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ (VOZ NEURAL MODERNA) =====
+// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ (VOZ NATIVA GARANTIZADA) =====
 app.all('/process-voice', (req, res) => {
   res.type('text/xml');
   const speechResult = req.query?.SpeechResult || req.body?.SpeechResult;
@@ -132,16 +132,16 @@ app.all('/process-voice', (req, res) => {
     const xmlRetry = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Gather input="speech" timeout="5" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
-        <Say language="es-MX" voice="es-MX-Neural-Rebecca">No te escuché bien. ¿Podrías repetir qué servicio te interesa?</Say>
+        <Say language="es-MX" voice="man">No te escuche bien. Podrías repetir que servicio te interesa.</Say>
     </Gather>
-    <Say language="es-MX" voice="es-MX-Neural-Rebecca">Gracias por llamar a BioMey. Hasta luego.</Say>
+    <Say language="es-MX" voice="man">Gracias por llamar a BioMey. Hasta luego.</Say>
     <Hangup/>
 </Response>`;
     return res.status(200).send(xmlRetry);
   }
 
   const lowerText = speechResult.toLowerCase();
-  let responseText = 'Entendido. Tomamos tu reporte y un especialista de BioMey te llamará de regreso en unos minutos. Muchas gracias por tu tiempo.';
+  let responseText = 'Entendido. Tomamos tu reporte y un especialista de BioMey te llamara de regreso en unos minutos. Muchas gracias por tu tiempo.';
 
   if (lowerText.includes('precio') || lowerText.includes('costo') || lowerText.includes('cuánto')) {
     responseText = 'Nuestros precios varían según el proyecto. El diseño web va desde 2,500 pesos y el mantenimiento de computadoras desde 250 pesos. Puedes consultar más detalles en WhatsApp.';
@@ -149,13 +149,13 @@ app.all('/process-voice', (req, res) => {
     const detectedService = detectService(speechResult);
     if (detectedService && services[detectedService]) {
       const service = services[detectedService];
-      responseText = `Excelente, elegiste ${service.name}. ${service.description} El costo aproximado es ${service.prices}. Un asesor se comunicará contigo a este número para cerrar los detalles.`;
+      responseText = `Excelente, elegiste ${service.name}. ${service.description} El costo aproximado es ${service.prices}. Un asesor se comunicara contigo a este número para cerrar los detalles.`;
     }
   }
 
   const xmlResult = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say language="es-MX" voice="es-MX-Neural-Rebecca">${responseText}</Say>
+    <Say language="es-MX" voice="man">${responseText}</Say>
     <Hangup/>
 </Response>`;
 
