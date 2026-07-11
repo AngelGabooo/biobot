@@ -145,7 +145,8 @@ app.post('/process-ai', async (req, res) => {
     return res.status(200).send(xml(bodyNormal));
 
   } catch (error) {
-    console.error('Error en Gemini Engine:', error.message);
+    // Imprime el error completo con propiedades internas para debug en Vercel Logs
+    console.error('Error detallado en Gemini Engine:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
     return res.status(200).send(xml(`${say('Entendido. Registramos tu solicitud. Un asesor se comunicará contigo.')}<Hangup/>`));
   }
 });
