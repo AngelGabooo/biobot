@@ -161,10 +161,10 @@ app.get('/process-voice', async (req, res) => {
 
   responseText += 'Hemos registrado tu interés de manera exitosa. Un especialista de BioMey se comunicará contigo a este número en unos minutos para darte una atención personalizada. Muchas gracias por tu tiempo.';
 
-  // --- ENVÍO DEL REPORTES AUTOMÁTICO POR EMAIL ---
+ // --- ENVÍO DEL REPORTE AUTOMÁTICO POR EMAIL (PROMETIFICADO PARA VERCEL) ---
   const mailOptions = {
     from: companyInfo.email,
-    to: 'soporte-biomey-tux@outlook.com', // Te lo mandas a ti mismo
+    to: 'soporte-biomey-tux@outlook.com',
     subject: `🚨 Nuevo Cliente Interesado - Tel: ${clientPhone}`,
     html: `
       <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px; max-width: 600px;">
@@ -179,15 +179,15 @@ app.get('/process-voice', async (req, res) => {
     `
   };
 
-  // Enviamos el correo de forma asíncrona en segundo plano
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) {
-      console.error('Error al enviar el correo:', error);
-    } else {
-      console.log('Correo enviado con éxito: ' + info.response);
-    }
-  });
+  // Obligamos a Vercel a esperar a que el correo sea enviado con éxito usando await
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Correo enviado con éxito a Outlook:', info.response);
+  } catch (emailError) {
+    console.error('Error crítico al enviar el correo por SMTP:', emailError.message);
+  }
 
+  // Hasta que el correo se procesa, le entregamos el XML final a Twilio
   const xmlResult = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say language="es-MX" voice="es-MX-Standard-A">${responseText}</Say>
@@ -196,7 +196,6 @@ app.get('/process-voice', async (req, res) => {
 
   return res.status(200).send(xmlResult);
 });
-
 // ENDPOINT 4: DISPARAR LLAMADA SALIENTE
 app.get('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
