@@ -36,7 +36,7 @@ const services = {
     name: 'Mantenimiento de PC',
     description: 'Mantenimiento preventivo y correctivo para que tu equipo funcione como nuevo.',
     prices: 'Desde $250 MXN para mantenimiento preventivo básico.',
-    details: 'Incluye limpieza física y de software, optimización, eliminación de virus y respaldo.',
+    details: 'Incluye limpieza física y de software, optimización, eliminación virus y respaldo.',
     keywords: ['pc', 'computadora', 'mantenimiento', 'limpieza', 'virus', 'laptop']
   }
 };
@@ -107,76 +107,62 @@ app.all('/whatsapp', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 2: DE VOZ PRINCIPAL (MÉTODO GET EXTENDIDO) =====
+// ===== ENDPOINT 2: DE VOZ PRINCIPAL CORREGIDO =====
 app.all('/voice', (req, res) => {
-  const twiml = new twilio.twiml.VoiceResponse();
-  
-  // Cambiado a method: 'GET' para evitar bloqueos de peticiones POST externas en Vercel
-  const gather = twiml.gather({
-    input: 'speech',
-    timeout: 8,
-    speechTimeout: 'auto',
-    action: `${BASE_URL}/process-voice`,
-    method: 'GET',
-    language: 'es-MX'
-  });
-  
-  gather.say({ language: 'es-MX', voice: 'alice' }, `¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description} ¿En qué servicio te gustaría que te ayudemos hoy?`);
-  
-  twiml.say({ language: 'es-MX', voice: 'alice' }, 'No logré escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.');
-  
   res.type('text/xml');
-  return res.status(200).send(twiml.toString());
+  
+  // Escribimos el XML de forma manual y nativa para asegurar cero errores de formato
+  const xmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Gather input="speech" timeout="8" speechTimeout="auto" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
+        <Say language="es-MX" voice="alice">¡Hola! Bienvenido a BioMey. Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos. ¿En qué servicio te gustaría que te ayudemos hoy?</Say>
+    </Gather>
+    <Say language="es-MX" voice="alice">No logré escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.</Say>
+</Response>`;
+
+  return res.status(200).send(xmlResponse);
 });
 
-// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ CORREGIDO (MÉTODO GET EXTENDIDO) =====
+// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ CORREGIDO =====
 app.all('/process-voice', (req, res) => {
-  // Leemos prioritariamente de req.query porque forzamos el flujo por GET
+  res.type('text/xml');
   const speechResult = req.query?.SpeechResult || req.body?.SpeechResult;
-  const twiml = new twilio.twiml.VoiceResponse();
   
   if (!speechResult) {
-    const gather = twiml.gather({ 
-      input: 'speech', 
-      timeout: 6, 
-      action: `${BASE_URL}/process-voice`, 
-      method: 'GET',
-      language: 'es-MX' 
-    });
-    gather.say({ language: 'es-MX', voice: 'alice' }, 'No te escuché bien. ¿Podrías repetir qué servicio te interesa?');
-    res.type('text/xml');
-    return res.status(200).send(twiml.toString());
+    const xmlRetry = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Gather input="speech" timeout="6" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
+        <Say language="es-MX" voice="alice">No te escuché bien. ¿Podrías repetir qué servicio te interesa?</Say>
+    </Gather>
+    <Say language="es-MX" voice="alice">Gracias por llamar a BioMey. Hasta luego.</Say>
+    <Hangup/>
+</Response>`;
+    return res.status(200).send(xmlRetry);
   }
 
   const lowerText = speechResult.toLowerCase();
-  
-  // Caso 1: Pregunta por precios
+  let responseText = 'Entendido. Tomamos tu reporte y un especialista de BioMey te llamará de regreso en unos minutos. Muchas gracias por tu tiempo.';
+
   if (lowerText.includes('precio') || lowerText.includes('costo') || lowerText.includes('cuánto')) {
-    twiml.say({ language: 'es-MX', voice: 'alice' }, 'Nuestros precios varían según el proyecto. El diseño web va desde 2,500 pesos y el mantenimiento de computadoras desde 250 pesos. Puedes consultar más detalles en WhatsApp.');
-    twiml.hangup();
-    res.type('text/xml');
-    return res.status(200).send(twiml.toString());
+    responseText = 'Nuestros precios varían según el proyecto. El diseño web va desde 2,500 pesos y el mantenimiento de computadoras desde 250 pesos. Puedes consultar más detalles en WhatsApp.';
+  } else {
+    const detectedService = detectService(speechResult);
+    if (detectedService && services[detectedService]) {
+      const service = services[detectedService];
+      responseText = `Excelente, elegiste ${service.name}. ${service.description} El costo aproximado es ${service.prices}. Un asesor se comunicará contigo a este número para cerrar los detalles.`;
+    }
   }
 
-  // Caso 2: Detección inteligente de servicios de la lista
-  const detectedService = detectService(speechResult);
-  if (detectedService && services[detectedService]) {
-    const service = services[detectedService];
-    twiml.say({ language: 'es-MX', voice: 'alice' }, `Excelente, elegiste ${service.name}. ${service.description} El costo aproximado es ${service.prices}. Un asesor se comunicará contigo a este número para cerrar los detalles.`);
-    twiml.hangup();
-    res.type('text/xml');
-    return res.status(200).send(twiml.toString());
-  }
+  const xmlResult = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say language="es-MX" voice="alice">${responseText}</Say>
+    <Hangup/>
+</Response>`;
 
-  // Caso 3: No entendió la palabra
-  twiml.say({ language: 'es-MX', voice: 'alice' }, 'Entendido. Tomamos tu reporte y un especialista de BioMey te llamará de regreso en unos minutos. Muchas gracias por tu tiempo.');
-  twiml.hangup();
-
-  res.type('text/xml');
-  return res.status(200).send(twiml.toString());
+  return res.status(200).send(xmlResult);
 });
 
-// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE SEGURO (MÉTODO GET CONFIGURADO) =====
+// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE SEGURO =====
 app.all('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const envAuthToken = process.env.TWILIO_AUTH_TOKEN;
@@ -184,7 +170,7 @@ app.all('/make-call', async (req, res) => {
   if (!envAccountSid || !envAuthToken) {
     return res.status(500).json({ 
       status: 'error', 
-      message: 'Las variables de entorno TWILIO_ACCOUNT_SID o TWILIO_AUTH_TOKEN no están configuradas en el panel de Vercel.' 
+      message: 'Las variables de entorno no están configuradas en el panel de Vercel.' 
     });
   }
 
@@ -193,7 +179,7 @@ app.all('/make-call', async (req, res) => {
 
     const call = await secureClient.calls.create({
       url: `${BASE_URL}/voice`,
-      method: 'GET', // Le indicamos a Twilio que consuma nuestro XML inicial usando GET
+      method: 'GET',
       to: '+528144384806', 
       from: '+18312825317' 
     });
