@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: true }));
 const companyInfo = {
   name: 'BioMey',
   description: 'Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos.',
-  phone: '8144384806',
+  phone: '33 4981 2319',
   email: 'soporte-biomey-tux@outlook.com',
   website: 'https://bio-mey-com-five.vercel.app/'
 };
@@ -51,17 +51,14 @@ function detectService(text) {
   return null;
 }
 
-// URL base estática fija de tu backend en Vercel
 const BASE_URL = 'https://biobot-six.vercel.app';
 
 // ===== ENDPOINT 1: BOT DE WHATSAPP =====
 app.all('/whatsapp', (req, res) => {
   const incomingMsg = req.body?.Body || req.query?.Body || '';
   const twiml = new twilio.twiml.MessagingResponse();
-  
   const lowerText = incomingMsg.toLowerCase().trim();
 
-  // Saludo inicial
   if (!lowerText || lowerText === 'hola' || lowerText === 'inicio') {
     twiml.message(
       `¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description}\n\n` +
@@ -74,7 +71,6 @@ app.all('/whatsapp', (req, res) => {
     return res.status(200).send(twiml.toString());
   }
 
-  // Precios generales
   if (lowerText.includes('precio') || lowerText.includes('costo') || lowerText.includes('cuanto')) {
     twiml.message(
       `Nuestros precios varían según el servicio:\n` +
@@ -86,7 +82,6 @@ app.all('/whatsapp', (req, res) => {
     return res.status(200).send(twiml.toString());
   }
 
-  // Detección inteligente de servicios
   const detectedService = detectService(incomingMsg);
   if (detectedService && services[detectedService]) {
     const service = services[detectedService];
@@ -100,7 +95,6 @@ app.all('/whatsapp', (req, res) => {
     return res.status(200).send(twiml.toString());
   }
 
-  // Mensaje por defecto si no entiende la palabra clave
   twiml.message(
     `Entendido. Te recuerdo nuestros servicios principales:\n` +
     `• Desarrollo Web\n` +
@@ -113,60 +107,73 @@ app.all('/whatsapp', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 2: DE VOZ PRINCIPAL =====
+// ===== ENDPOINT 2: DE VOZ PRINCIPAL (SOPORTE COMPLETO HTTP POST/GET) =====
 app.all('/voice', (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
   
+  // Forzamos a que escuche voz en español de México con un margen de espera de 8 segundos
   const gather = twiml.gather({
     input: 'speech',
-    timeout: 5,
+    timeout: 8,
     speechTimeout: 'auto',
     action: `${BASE_URL}/process-voice`,
-    language: 'es-MX',
-    enhanced: true,
+    method: 'POST',
+    language: 'es-MX'
   });
   
-  gather.say(`¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description} ¿En qué servicio te gustaría que te ayudemos hoy?`);
-  twiml.say(`No te he escuchado. Escríbenos por WhatsApp al ${companyInfo.phone}. Gracias por llamar.`);
+  gather.say({ language: 'es-MX', voice: 'alice' }, `¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description} ¿En qué servicio te gustaría que te ayudemos hoy?`);
   
-  res.header('Content-Type', 'text/xml');
+  // Si se queda en silencio, le damos una segunda oportunidad antes de colgar
+  twiml.say({ language: 'es-MX', voice: 'alice' }, 'No logré escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.');
+  
+  res.type('text/xml');
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ =====
+// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ CORREGIDO =====
 app.all('/process-voice', (req, res) => {
   const speechResult = req.body?.SpeechResult || req.query?.SpeechResult;
   const twiml = new twilio.twiml.VoiceResponse();
   
   if (!speechResult) {
+    // Si llegó aquí sin texto, le volvemos a preguntar
     const gather = twiml.gather({ 
       input: 'speech', 
-      timeout: 5, 
+      timeout: 6, 
       action: `${BASE_URL}/process-voice`, 
+      method: 'POST',
       language: 'es-MX' 
     });
-    gather.say('No te he escuchado bien. ¿Puedes repetir qué servicio te interesa?');
-    res.header('Content-Type', 'text/xml');
+    gather.say({ language: 'es-MX', voice: 'alice' }, 'No te escuché bien. ¿Podrías repetir qué servicio te interesa?');
+    res.type('text/xml');
     return res.status(200).send(twiml.toString());
   }
 
   const lowerText = speechResult.toLowerCase();
-  if (lowerText.includes('precio') || lowerText.includes('costo')) {
-    twiml.say('Nuestros precios varían. Diseño web desde $2,500 y mantenimiento desde $250.');
-    res.header('Content-Type', 'text/xml');
+  
+  // Caso 1: Pregunta por precios
+  if (lowerText.includes('precio') || lowerText.includes('costo') || lowerText.includes('cuánto')) {
+    twiml.say({ language: 'es-MX', voice: 'alice' }, 'Nuestros precios varían según el proyecto. El diseño web va desde 2,500 pesos y el mantenimiento de computadoras desde 250 pesos. Puedes consultar más detalles en WhatsApp.');
+    twiml.hangup();
+    res.type('text/xml');
     return res.status(200).send(twiml.toString());
   }
 
+  // Caso 2: Detección inteligente de servicios de la lista
   const detectedService = detectService(speechResult);
   if (detectedService && services[detectedService]) {
     const service = services[detectedService];
-    twiml.say(`Elegiste ${service.name}. ${service.description} Precios: ${service.prices}`);
-    res.header('Content-Type', 'text/xml');
+    twiml.say({ language: 'es-MX', voice: 'alice' }, `Excelente, elegiste ${service.name}. ${service.description} El costo aproximado es ${service.prices}. Un asesor se comunicará contigo a este número para cerrar los detalles.`);
+    twiml.hangup();
+    res.type('text/xml');
     return res.status(200).send(twiml.toString());
   }
 
-  twiml.say('Gracias por llamarnos. Nos comunicaremos contigo pronto. ¡Hasta luego!');
-  res.header('Content-Type', 'text/xml');
+  // Caso 3: No entendió la palabra
+  twiml.say({ language: 'es-MX', voice: 'alice' }, 'Entendido. Tomamos tu reporte y un especialista de BioMey te llamará de regreso en unos minutos. Muchas gracias por tu tiempo.');
+  twiml.hangup();
+
+  res.type('text/xml');
   return res.status(200).send(twiml.toString());
 });
 
@@ -175,7 +182,6 @@ app.all('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const envAuthToken = process.env.TWILIO_AUTH_TOKEN;
 
-  // Verificación de variables en Vercel
   if (!envAccountSid || !envAuthToken) {
     return res.status(500).json({ 
       status: 'error', 
@@ -184,13 +190,12 @@ app.all('/make-call', async (req, res) => {
   }
 
   try {
-    // Inicialización interna usando .trim() para sanitizar strings de espacios fantasmas
     const secureClient = twilio(envAccountSid.trim(), envAuthToken.trim());
 
     const call = await secureClient.calls.create({
       url: `${BASE_URL}/voice`,
       to: '+528144384806', // Tu número verificado
-      from: '+18312825317' // Tu número comprado en Twilio
+       from: '+18312825317' // Tu número comprado en Twilio
     });
 
     res.json({ status: 'success', message: 'Llamada iniciada correctamente a través de Vercel', callSid: call.sid });
