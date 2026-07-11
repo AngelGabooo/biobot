@@ -5,6 +5,11 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Inicialización segura del cliente de Twilio con variables de entorno
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const client = (accountSid && authToken) ? twilio(accountSid, authToken) : null;
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -170,7 +175,29 @@ app.all('/process-voice', (req, res) => {
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 4: HEALTH CHECK =====
+// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE (BYPASS DE RESTRICCIÓN) =====
+app.all('/make-call', async (req, res) => {
+  if (!client) {
+    return res.status(500).json({ 
+      status: 'error', 
+      message: 'Las variables de entorno TWILIO_ACCOUNT_SID o TWILIO_AUTH_TOKEN no están configuradas en Vercel.' 
+    });
+  }
+
+  try {
+    const call = await client.calls.create({
+      url: `${BASE_URL}/voice`,
+      to: '+528144384806', // Tu número verificado
+      from: '+16802013265' // Tu número Twilio
+    });
+
+    res.json({ status: 'success', message: 'Llamada iniciada correctamente', callSid: call.sid });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// ===== ENDPOINT 5: HEALTH CHECK =====
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor independiente BioMey corriendo perfectamente' });
 });
