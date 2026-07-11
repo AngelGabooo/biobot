@@ -3,7 +3,6 @@ const twilio = require('twilio');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -11,7 +10,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const companyInfo = {
   name: 'BioMey',
-  description: 'We are a digital solutions agency specialized in web development, mobile applications, and technology services.',
+  description: 'Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos.',
   phone: '33 4981 2319',
   email: 'soporte-biomey-tux@outlook.com',
   website: 'https://bio-mey-com-five.vercel.app/'
@@ -19,22 +18,22 @@ const companyInfo = {
 
 const services = {
   'web': {
-    name: 'Web Development',
-    description: 'We create professional, modern, and SEO optimized websites.',
-    prices: 'From $2,500 MXN for landing pages up to $18,500 MXN for enterprise sites.',
-    keywords: ['web', 'page', 'site', 'landing', 'design', 'development']
+    name: 'Desarrollo Web',
+    description: 'Creamos paginas web profesionales, modernas y optimizadas para Google.',
+    prices: 'Desde 2500 pesos para landing pages, 6500 para sitios de negocios, 11500 para sitios profesionales y 18500 para sitios empresariales.',
+    keywords: ['web', 'página', 'sitio', 'landing', 'pagina', 'diseño', 'desarrollo']
   },
   'app': {
-    name: 'Mobile Applications',
-    description: 'We develop intuitive and high-performance apps for Android and iOS.',
-    prices: 'From $30,000 MXN for basic apps.',
-    keywords: ['app', 'application', 'mobile', 'android', 'ios', 'phone']
+    name: 'Aplicaciones Móviles',
+    description: 'Desarrollamos apps para Android e iOS con diseño intuitivo y alto rendimiento.',
+    prices: 'Desde 30000 pesos para apps básicas.',
+    keywords: ['app', 'aplicación', 'movil', 'móvil', 'android', 'ios', 'celular']
   },
   'pc': {
-    name: 'PC Maintenance',
-    description: 'Preventive and corrective maintenance to make your computer run like new.',
-    prices: 'From $250 MXN for basic maintenance.',
-    keywords: ['pc', 'computer', 'maintenance', 'cleaning', 'virus', 'laptop']
+    name: 'Mantenimiento de PC',
+    description: 'Mantenimiento preventivo y correctivo para que tu equipo funcione como nuevo.',
+    prices: 'Desde 250 pesos para mantenimiento preventivo básico.',
+    keywords: ['pc', 'computadora', 'mantenimiento', 'limpieza', 'virus', 'laptop']
   }
 };
 
@@ -56,33 +55,38 @@ app.all('/whatsapp', (req, res) => {
   const twiml = new twilio.twiml.MessagingResponse();
   const lowerText = incomingMsg.toLowerCase().trim();
 
-  if (!lowerText || lowerText === 'hello' || lowerText === 'hi') {
-    twiml.message(`Welcome to ${companyInfo.name}. ${companyInfo.description}`);
+  if (!lowerText || lowerText === 'hola' || lowerText === 'inicio') {
+    twiml.message(
+      `¡Hola! Bienvenido a ${companyInfo.name}. ${companyInfo.description}\n\n` +
+      `¿En qué servicio te gustaría que te ayudemos hoy?\n` +
+      `• Desarrollo Web\n` +
+      `• Aplicaciones Móviles\n` +
+      `• Mantenimiento de PC`
+    );
     res.header('Content-Type', 'text/xml');
     return res.status(200).send(twiml.toString());
   }
-  
+
   res.header('Content-Type', 'text/xml');
   return res.status(200).send(twiml.toString());
 });
 
-// ===== ENDPOINT 2: VOICE ENDPOINT (ENGLISH DIAGNOSTIC) =====
+// ===== ENDPOINT 2: DE VOZ PRINCIPAL (GET) =====
 app.all('/voice', (req, res) => {
   res.type('text/xml');
   
-  // Usamos voz nativa 'man' en inglés de Estados Unidos ('en-US')
   const xmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="5" speechTimeout="auto" action="${BASE_URL}/process-voice" method="GET" language="en-US">
-        <Say language="en-US" voice="man">Hello. Welcome to BioMey. We are a digital solutions agency. What service are you interested in today? Web development, mobile apps, or computer maintenance?</Say>
+    <Gather input="speech" timeout="5" speechTimeout="auto" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
+        <Say language="es-MX" voice="man">Hola. Bienvenido a BioMey. Somos una agencia de soluciones digitales especializada en desarrollo web, aplicaciones móviles y servicios tecnológicos. En que servicio te gustaría que te ayudemos hoy.</Say>
     </Gather>
-    <Say language="en-US" voice="man">I did not hear you. Goodbye.</Say>
+    <Say language="es-MX" voice="man">No logre escucharte. Recuerda que puedes escribirnos por WhatsApp en cualquier momento. Gracias por llamar.</Say>
 </Response>`;
 
   return res.status(200).send(xmlResponse);
 });
 
-// ===== ENDPOINT 3: PROCESS VOICE (ENGLISH DIAGNOSTIC) =====
+// ===== ENDPOINT 3: PROCESAMIENTO DE VOZ (GET) =====
 app.all('/process-voice', (req, res) => {
   res.type('text/xml');
   const speechResult = req.query?.SpeechResult || req.body?.SpeechResult;
@@ -90,44 +94,44 @@ app.all('/process-voice', (req, res) => {
   if (!speechResult) {
     const xmlRetry = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="5" action="${BASE_URL}/process-voice" method="GET" language="en-US">
-        <Say language="en-US" voice="man">I did not hear you clearly. Could you repeat that?</Say>
+    <Gather input="speech" timeout="5" action="${BASE_URL}/process-voice" method="GET" language="es-MX">
+        <Say language="es-MX" voice="man">No te escuche bien. Podrías repetir que servicio te interesa.</Say>
     </Gather>
-    <Say language="en-US" voice="man">Thank you for calling BioMey. Goodbye.</Say>
+    <Say language="es-MX" voice="man">Gracias por llamar a BioMey. Hasta luego.</Say>
     <Hangup/>
 </Response>`;
     return res.status(200).send(xmlRetry);
   }
 
   const lowerText = speechResult.toLowerCase();
-  let responseText = 'Understood. An agent from BioMey will call you back shortly. Thank you.';
+  let responseText = 'Entendido. Tomamos tu reporte y un especialista de BioMey te llamara de regreso en unos minutos. Muchas gracias por tu tiempo.';
 
-  if (lowerText.includes('price') || lowerText.includes('cost')) {
-    responseText = 'Our prices vary. Web design starts at 2,500 pesos, and maintenance starts at 250 pesos.';
+  if (lowerText.includes('precio') || lowerText.includes('costo')) {
+    responseText = 'Nuestros precios varían según el proyecto. El diseño web va desde 2,500 pesos y el mantenimiento de computadoras desde 250 pesos.';
   } else {
     const detectedService = detectService(speechResult);
     if (detectedService && services[detectedService]) {
       const service = services[detectedService];
-      responseText = `Great, you selected ${service.name}. ${service.description} The price is ${service.prices}.`;
+      responseText = `Excelente, elegiste ${service.name}. ${service.description} El costo aproximado es ${service.prices}.`;
     }
   }
 
   const xmlResult = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say language="en-US" voice="man">${responseText}</Say>
+    <Say language="es-MX" voice="man">${responseText}</Say>
     <Hangup/>
 </Response>`;
 
   return res.status(200).send(xmlResult);
 });
 
-// ===== ENDPOINT 4: MAKE CALL =====
+// ===== ENDPOINT 4: DISPARAR LLAMADA SALIENTE =====
 app.all('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const envAuthToken = process.env.TWILIO_AUTH_TOKEN;
 
   if (!envAccountSid || !envAuthToken) {
-    return res.status(500).json({ status: 'error', message: 'Environment variables missing.' });
+    return res.status(500).json({ status: 'error', message: 'Variables de entorno faltantes en Vercel.' });
   }
 
   try {
@@ -138,7 +142,7 @@ app.all('/make-call', async (req, res) => {
       to: '+528144384806', 
       from: '+18312825317' 
     });
-    res.json({ status: 'success', callSid: call.sid });
+    res.json({ status: 'success', message: 'Llamada iniciada correctamente', callSid: call.sid });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -149,6 +153,5 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Exportamos la app para que la maneje Vercel Serverless
+module.exports = app;
