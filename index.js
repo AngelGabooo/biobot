@@ -1,13 +1,16 @@
 const express = require('express');
 const twilio = require('twilio');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Inicializamos Resend con la variable de entorno
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const companyInfo = {
   name: 'BioMey',
@@ -86,20 +89,6 @@ function detectService(text) {
 
 const BASE_URL = 'https://biobot-six.vercel.app';
 
-// CONFIGURACIÓN DEL TRANSPORTADOR DE NODEMAILER (OUTLOOK)
-const transporter = nodemailer.createTransport({
-  host: 'smtp.office365.com',
-  port: 587,
-  secure: false, // true para 465, false para otros puertos
-  auth: {
-    user: companyInfo.email,
-    pass: process.env.EMAIL_PASSWORD // Tu contraseña de aplicación guardada en Vercel
-  },
-  tls: {
-    ciphers: 'SSLv3'
-  }
-});
-
 // RUTA RAÍZ
 app.get('/', (req, res) => {
   return res.status(200).send('Servidor BioMey Activo en Vercel');
@@ -118,7 +107,7 @@ app.get('/voice', (req, res) => {
   return res.status(200).send(xmlResponse);
 });
 
-// ENDPOINT 3: PROCESAMIENTO DE VOZ Y ENVÍO DE EMAIL
+// ENDPOINT 3: PROCESAMIENTO DE VOZ Y EMAIL CON RESEND
 app.get('/process-voice', async (req, res) => {
   res.type('text/xml');
   const speechResult = req.query?.SpeechResult || '';
@@ -161,33 +150,31 @@ app.get('/process-voice', async (req, res) => {
 
   responseText += 'Hemos registrado tu interés de manera exitosa. Un especialista de BioMey se comunicará contigo a este número en unos minutos para darte una atención personalizada. Muchas gracias por tu tiempo.';
 
- // --- ENVÍO DEL REPORTE AUTOMÁTICO POR EMAIL (PROMETIFICADO PARA VERCEL) ---
-  const mailOptions = {
-    from: companyInfo.email,
-    to: 'soporte-biomey-tux@outlook.com',
-    subject: `🚨 Nuevo Cliente Interesado - Tel: ${clientPhone}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px; max-width: 600px;">
-        <h2 style="color: #0078d4;">📱 Nuevo Reporte de Llamada Bot - BioMey</h2>
-        <hr/>
-        <p><strong>👤 Teléfono del Cliente:</strong> ${clientPhone}</p>
-        <p><strong>🔍 Servicio Detectado:</strong> ${serviceDetectedName}</p>
-        <p><strong>🗣️ Transcripción de Voz:</strong> "${speechResult}"</p>
-        <hr/>
-        <p style="font-size: 12px; color: #666;">Este es un mensaje automático generado por tu servidor Express en Vercel.</p>
-      </div>
-    `
-  };
-
-  // Obligamos a Vercel a esperar a que el correo sea enviado con éxito usando await
+  // --- ENVÍO SEGURO Y ULTRA RÁPIDO CON RESEND ---
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Correo enviado con éxito a Outlook:', info.response);
+    // Al usar una cuenta gratuita de Resend, enviamos desde su correo por defecto 'onboarding@resend.dev'
+    // hacia tu correo personal verificado.
+    await resend.emails.send({
+      from: 'BioMeyBot <onboarding@resend.dev>',
+      to: 'soporte-biomey-tux@outlook.com',
+      subject: `🚨 Nuevo Cliente Interesado - Tel: ${clientPhone}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px; max-width: 600px;">
+          <h2 style="color: #4f46e5;">📱 Nuevo Reporte de Llamada Bot - BioMey</h2>
+          <hr/>
+          <p><strong>👤 Teléfono del Cliente:</strong> ${clientPhone}</p>
+          <p><strong>🔍 Servicio Detectado:</strong> ${serviceDetectedName}</p>
+          <p><strong>🗣️ Transcripción de Voz:</strong> "${speechResult}"</p>
+          <hr/>
+          <p style="font-size: 12px; color: #666;">Reporte procesado de forma segura vía Resend API.</p>
+        </div>
+      `
+    });
+    console.log('Correo enviado con éxito usando Resend API.');
   } catch (emailError) {
-    console.error('Error crítico al enviar el correo por SMTP:', emailError.message);
+    console.error('Error crítico en Resend API:', emailError.message);
   }
 
-  // Hasta que el correo se procesa, le entregamos el XML final a Twilio
   const xmlResult = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say language="es-MX" voice="es-MX-Standard-A">${responseText}</Say>
@@ -196,6 +183,7 @@ app.get('/process-voice', async (req, res) => {
 
   return res.status(200).send(xmlResult);
 });
+
 // ENDPOINT 4: DISPARAR LLAMADA SALIENTE
 app.get('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
