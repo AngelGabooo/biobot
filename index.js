@@ -97,7 +97,7 @@ app.post('/process-ai', async (req, res) => {
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash', // Actualizamos a la versión más reciente y activa de la API
+      model: 'gemini-2.0-flash', // Actualizamos a la versión más reciente y activa de la API
       contents: speechResult,
       config: {
         systemInstruction: systemInstruction,
