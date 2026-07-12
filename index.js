@@ -145,6 +145,7 @@ const TWILIO_CALLER_ID = '+18312825317';
 const ADVISOR_NUMBER = process.env.ADVISOR_PHONE_NUMBER || '+528144384806';
 
 const MAX_INTENTOS = 3; // intentos fallidos antes de escalar automáticamente con un asesor
+const MAX_INTENTOS_ASESOR = 2; // veces que reintentamos marcar al asesor antes de dejar de insistir
 
 const AVISO_LEGAL =
   'Antes de continuar, te informamos que esta llamada está siendo monitoreada y grabada con fines de calidad. ' +
@@ -249,12 +250,27 @@ function retryOrEscalate(req, res, selfPath, selfParams) {
   return res.status(200).send(xml(body));
 }
 
+// Cuando el asesor no contesta (busy, no-answer, failed, canceled), en vez de
+// colgar de inmediato regresamos al cliente al menú principal para que elija
+// un servicio. Ese flujo normal ya termina enviando el correo (Resend) con el
+// teléfono del cliente y el servicio elegido, para que el asesor lo contacte
+// después. Llevamos un contador (intentosAsesor) para no reintentar el Dial
+// de forma indefinida si el cliente vuelve a presionar 0.
 app.get('/despues-de-asesor', (req, res) => {
   res.type('text/xml');
   const status = req.query?.DialCallStatus;
-  const body = (status === 'completed' || status === 'answered')
-    ? say('Gracias por llamar a BioMey. Que tengas excelente día.') + '<Hangup/>'
-    : say('En este momento nuestro asesor no pudo contestar. Hemos registrado tu intento de contacto y te buscaremos lo antes posible. Gracias por llamar a BioMey.') + '<Hangup/>';
+  const intentosAsesor = parseInt(req.query?.intentosAsesor || '0', 10) + 1;
+
+  if (status === 'completed' || status === 'answered') {
+    const body = say('Gracias por llamar a BioMey. Que tengas excelente día.') + '<Hangup/>';
+    return res.status(200).send(xml(body));
+  }
+
+  const body =
+    say(
+      'En este momento nuestro asesor no pudo contestar. ' +
+      'Mientras te contactamos, cuéntanos qué servicio te interesa y lo registraremos para que un especialista te llame más tarde.'
+    ) + redirectTo('/voice', { intentosAsesor });
   return res.status(200).send(xml(body));
 });
 
@@ -269,6 +285,7 @@ app.get('/', (req, res) => {
 app.get('/voice', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
+  const intentosAsesor = req.query?.intentosAsesor || '0';
 
   const menu =
     'Bienvenido a BioMey, tu agencia de soluciones digitales. ' +
@@ -278,7 +295,7 @@ app.get('/voice', (req, res) => {
     'También puedes decir en voz alta el servicio que buscas.';
 
   const body =
-    `<Gather input="dtmf speech" numDigits="1" timeout="6" speechTimeout="auto" action="${fullUrl('/menu-principal', { intentos })}" method="GET" language="es-MX">
+    `<Gather input="dtmf speech" numDigits="1" timeout="6" speechTimeout="auto" action="${fullUrl('/menu-principal', { intentos, intentosAsesor })}" method="GET" language="es-MX">
         ${say(AVISO_LEGAL + AYUDA_TECLAS + menu)}
     </Gather>
     ${say('No recibimos ninguna respuesta. Puedes llamarnos de nuevo cuando gustes. Gracias por contactar a BioMey.')}
@@ -288,7 +305,8 @@ app.get('/voice', (req, res) => {
 });
 
 app.get('/menu-principal', (req, res) => {
-  if (handleUniversalKeys(req, res, '/voice', {})) return;
+  const intentosAsesor = req.query?.intentosAsesor || '0';
+  if (handleUniversalKeysConAsesor(req, res, '/voice', {}, intentosAsesor)) return;
   res.type('text/xml');
 
   const digit = req.query?.Digits;
@@ -308,6 +326,41 @@ app.get('/menu-principal', (req, res) => {
     default: return retryOrEscalate(req, res, '/voice', {});
   }
 });
+
+// Variante de handleUniversalKeys que respeta el contador de reintentos de asesor
+// (para no reintentar el Dial indefinidamente si el cliente sigue presionando 0
+// después de que el asesor ya no contestó varias veces).
+function handleUniversalKeysConAsesor(req, res, selfPath, selfParams, intentosAsesor) {
+  const digit = req.query?.Digits;
+
+  if (digit === '*') {
+    res.type('text/xml');
+    res.status(200).send(xml(redirectTo(selfPath, selfParams)));
+    return true;
+  }
+
+  if (digit === '#') {
+    res.type('text/xml');
+    res.status(200).send(xml(redirectTo('/voice', {})));
+    return true;
+  }
+
+  if (digit === '0') {
+    res.type('text/xml');
+    const yaIntentado = parseInt(intentosAsesor || '0', 10);
+    if (yaIntentado >= MAX_INTENTOS_ASESOR) {
+      const body =
+        say('Nuestro asesor sigue sin poder contestar. Continuemos por aquí para registrar tu solicitud.') +
+        redirectTo('/voice', {});
+      res.status(200).send(xml(body));
+      return true;
+    }
+    res.status(200).send(xml(transferirConAsesor()));
+    return true;
+  }
+
+  return false;
+}
 
 // ============================================================
 // ESTADO: SUBMENÚ PÁGINAS WEB
