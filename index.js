@@ -9,7 +9,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Inicialización perezosa: si falta RESEND_API_KEY, no debe tumbar todo el servidor.
+// Se crea el cliente solo cuando realmente se va a enviar un correo.
+function getResendClient() {
+  if (!process.env.RESEND_API_KEY) {
+    console.error('RESEND_API_KEY no está configurada en las variables de entorno.');
+    return null;
+  }
+  return new Resend(process.env.RESEND_API_KEY);
+}
 
 const companyInfo = {
   name: 'BioMey',
@@ -83,6 +91,8 @@ const webMenuMap = { '1': 'landing', '2': 'negocios', '3': 'profesional', '4': '
 const mantenimientoMenuMap = { '1': 'mantenimiento_preventivo', '2': 'mantenimiento_correctivo' };
 const soporteMenuMap = { '1': 'software', '2': 'redes' };
 
+// Cotizador dinámico: preguntas de seguimiento solo para servicios donde el
+// alcance puede variar mucho. Es lógica de negocio pura (árbol de decisión), sin IA.
 const EXTRA_QUESTIONS = {
   profesional: {
     prompt: '¿Ya cuentas con dominio y hosting propios? Si ya los tienes, presiona 1. Si necesitas que te los incluyamos, presiona 2.',
@@ -130,8 +140,11 @@ const BASE_URL = 'https://biobot-six.vercel.app';
 const VOICE = { language: 'es-MX', voice: 'es-MX-Standard-A' };
 const TWILIO_CALLER_ID = '+18312825317';
 
+// Configura este número real en Vercel (Settings > Environment Variables > ADVISOR_PHONE_NUMBER)
+// para que la tecla 0 transfiera la llamada con un asesor de verdad.
 const ADVISOR_NUMBER = process.env.ADVISOR_PHONE_NUMBER || '+528144384806';
-const MAX_INTENTOS = 3;
+
+const MAX_INTENTOS = 3; // intentos fallidos antes de escalar automáticamente con un asesor
 
 const AVISO_LEGAL =
   'Antes de continuar, te informamos que esta llamada está siendo monitoreada y grabada con fines de calidad. ' +
@@ -148,11 +161,6 @@ function say(text) {
 
 function xml(body) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${body}\n</Response>`;
-}
-
-// Limpia saltos de línea incómodos que puedan romper el parser TwiML de Twilio
-function cleanXmlString(str) {
-  return str.replace(/\s+/g, ' ').trim();
 }
 
 function qs(params = {}) {
@@ -175,7 +183,7 @@ function redirectTo(path, params) {
 // ============================================================
 function isBusinessHours() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
-  const day = now.getDay();
+  const day = now.getDay(); // 0 = domingo
   const hour = now.getHours();
   if (day === 0) return false;
   return hour >= 9 && hour < 19;
@@ -184,12 +192,15 @@ function isBusinessHours() {
 function scheduleNote() {
   return isBusinessHours()
     ? 'Un especialista de BioMey se comunicará contigo a este número en unos minutos.'
-    : 'En este momento estamos fuera de nuestro horario de atención, pero hemos registrado tu solicitud. Un especialista te contactará el siguiente día hábil.';
+    : 'En este momento estamos fuera de nuestro horario de atención, pero hemos registrado tu solicitud. ' +
+      'Un especialista te contactará el siguiente día hábil.';
 }
 
 // ============================================================
-// NAVEGACIÓN UNIVERSAL
+// NAVEGACIÓN UNIVERSAL (*, #, 0) + ESCALAMIENTO POR INTENTOS
 // ============================================================
+// selfPath/selfParams describen la URL de "render" a la que hay que regresar
+// si el cliente presiona * (repetir el mensaje actual).
 function handleUniversalKeys(req, res, selfPath, selfParams) {
   const digit = req.query?.Digits;
 
@@ -207,7 +218,7 @@ function handleUniversalKeys(req, res, selfPath, selfParams) {
 
   if (digit === '0') {
     res.type('text/xml');
-    res.status(200).send(xml(cleanXmlString(transferirConAsesor())));
+    res.status(200).send(xml(transferirConAsesor()));
     return true;
   }
 
@@ -215,27 +226,33 @@ function handleUniversalKeys(req, res, selfPath, selfParams) {
 }
 
 function transferirConAsesor() {
-  return `${say('Te comunico con un asesor, un momento por favor.')}<Dial timeout="20" callerId="${TWILIO_CALLER_ID}" action="${BASE_URL}/despues-de-asesor" method="GET">${ADVISOR_NUMBER}</Dial>`;
+  return (
+    say('Te comunico con un asesor, un momento por favor.') +
+    `<Dial timeout="20" callerId="${TWILIO_CALLER_ID}" action="${BASE_URL}/despues-de-asesor" method="GET">${ADVISOR_NUMBER}</Dial>`
+  );
 }
 
+// Cuando se agotan los intentos válidos en un estado, escalamos directo con un asesor
+// en vez de seguir repitiendo el menú indefinidamente.
 function retryOrEscalate(req, res, selfPath, selfParams) {
   const intentos = parseInt(req.query?.intentos || '0', 10) + 1;
   res.type('text/xml');
   if (intentos >= MAX_INTENTOS) {
-    const body = `${say('No lograron identificar tu opción después de varios intentos.')}${transferirConAsesor()}`;
-    return res.status(200).send(xml(cleanXmlString(body)));
+    const body = say('No logramos identificar tu opción después de varios intentos.') + transferirConAsesor();
+    return res.status(200).send(xml(body));
   }
-  const body = `${say('No reconocimos esa opción, intentemos de nuevo.')}${redirectTo(selfPath, { ...selfParams, intentos })}`;
-  return res.status(200).send(xml(cleanXmlString(body)));
+  const body = say('No reconocimos esa opción, intentemos de nuevo.') +
+    redirectTo(selfPath, { ...selfParams, intentos });
+  return res.status(200).send(xml(body));
 }
 
 app.get('/despues-de-asesor', (req, res) => {
   res.type('text/xml');
   const status = req.query?.DialCallStatus;
   const body = (status === 'completed' || status === 'answered')
-    ? `${say('Gracias por llamar a BioMey. Que tengas excelente día.')}<Hangup/>`
-    : `${say('En este momento nuestro asesor no pudo contestar. Hemos registrado tu intento de contacto y te buscaremos lo antes posible. Gracias por llamar a BioMey.')}<Hangup/>`;
-  return res.status(200).send(xml(cleanXmlString(body)));
+    ? say('Gracias por llamar a BioMey. Que tengas excelente día.') + '<Hangup/>'
+    : say('En este momento nuestro asesor no pudo contestar. Hemos registrado tu intento de contacto y te buscaremos lo antes posible. Gracias por llamar a BioMey.') + '<Hangup/>';
+  return res.status(200).send(xml(body));
 });
 
 // RUTA RAÍZ
@@ -257,9 +274,14 @@ app.get('/voice', (req, res) => {
     'Para instalación de software o soporte de redes, presiona 3. ' +
     'También puedes decir en voz alta el servicio que buscas.';
 
-  const body = `<Gather input="dtmf speech" numDigits="1" timeout="6" speechTimeout="auto" action="${fullUrl('/menu-principal', { intentos })}" method="GET" language="es-MX">${say(AVISO_LEGAL + AYUDA_TECLAS + menu)}</Gather>${say('No recibimos ninguna respuesta. Puedes llamarnos de nuevo cuando gustes. Gracias por contactar a BioMey.')}<Hangup/>`;
+  const body =
+    `<Gather input="dtmf speech" numDigits="1" timeout="6" speechTimeout="auto" action="${fullUrl('/menu-principal', { intentos })}" method="GET" language="es-MX">
+        ${say(AVISO_LEGAL + AYUDA_TECLAS + menu)}
+    </Gather>
+    ${say('No recibimos ninguna respuesta. Puedes llamarnos de nuevo cuando gustes. Gracias por contactar a BioMey.')}
+    <Hangup/>`;
 
-  return res.status(200).send(xml(cleanXmlString(body)));
+  return res.status(200).send(xml(body));
 });
 
 app.get('/menu-principal', (req, res) => {
@@ -290,8 +312,17 @@ app.get('/menu-principal', (req, res) => {
 app.get('/estado/web', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
-  const body = `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/menu-web', { intentos })}" method="GET">${say('Páginas web. Landing Page, presiona 1. Página para negocios, presiona 2. Página profesional, presiona 3. Página empresarial, presiona 4. Tienda en línea o E-commerce, presiona 5.')}</Gather>${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}<Hangup/>`;
-  return res.status(200).send(xml(cleanXmlString(body)));
+  const body =
+    `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/menu-web', { intentos })}" method="GET">
+        ${say(
+          'Páginas web. Landing Page, presiona 1. Página para negocios, presiona 2. ' +
+          'Página profesional, presiona 3. Página empresarial, presiona 4. ' +
+          'Tienda en línea o E-commerce, presiona 5.'
+        )}
+    </Gather>
+    ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
+    <Hangup/>`;
+  return res.status(200).send(xml(body));
 });
 
 app.get('/menu-web', (req, res) => {
@@ -309,8 +340,16 @@ app.get('/menu-web', (req, res) => {
 app.get('/estado/mantenimiento', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
-  const body = `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/menu-mantenimiento', { intentos })}" method="GET">${say('Mantenimiento de computadoras. Mantenimiento preventivo, presiona 1. Mantenimiento correctivo o reparación, presiona 2.')}</Gather>${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}<Hangup/>`;
-  return res.status(200).send(xml(cleanXmlString(body)));
+  const body =
+    `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/menu-mantenimiento', { intentos })}" method="GET">
+        ${say(
+          'Mantenimiento de computadoras. Mantenimiento preventivo, presiona 1. ' +
+          'Mantenimiento correctivo o reparación, presiona 2.'
+        )}
+    </Gather>
+    ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
+    <Hangup/>`;
+  return res.status(200).send(xml(body));
 });
 
 app.get('/menu-mantenimiento', (req, res) => {
@@ -328,8 +367,16 @@ app.get('/menu-mantenimiento', (req, res) => {
 app.get('/estado/soporte', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
-  const body = `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/menu-soporte', { intentos })}" method="GET">${say('Software y redes. Instalación y configuración de software, presiona 1. Soporte de redes e internet, presiona 2.')}</Gather>${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}<Hangup/>`;
-  return res.status(200).send(xml(cleanXmlString(body)));
+  const body =
+    `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/menu-soporte', { intentos })}" method="GET">
+        ${say(
+          'Software y redes. Instalación y configuración de software, presiona 1. ' +
+          'Soporte de redes e internet, presiona 2.'
+        )}
+    </Gather>
+    ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
+    <Hangup/>`;
+  return res.status(200).send(xml(body));
 });
 
 app.get('/menu-soporte', (req, res) => {
@@ -342,7 +389,7 @@ app.get('/menu-soporte', (req, res) => {
 });
 
 // ============================================================
-// ESTADO: DETALLE DEL SERVICIO
+// ESTADO: DETALLE DEL SERVICIO (precio + descripción)
 // ============================================================
 app.get('/estado/detalle', (req, res) => {
   res.type('text/xml');
@@ -352,10 +399,17 @@ app.get('/estado/detalle', (req, res) => {
 
   if (!service) return res.status(200).send(xml(redirectTo('/voice', {})));
 
-  const detalle = `${service.name}. ${service.description} Su costo es de ${service.prices}. Si deseas continuar con este servicio, presiona 1.`;
+  const detalle =
+    `${service.name}. ${service.description} Su costo es de ${service.prices}. ` +
+    'Si deseas continuar con este servicio, presiona 1.';
 
-  const body = `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/manejar-detalle', { key, intentos })}" method="GET">${say(detalle)}</Gather>${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}<Hangup/>`;
-  return res.status(200).send(xml(cleanXmlString(body)));
+  const body =
+    `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/manejar-detalle', { key, intentos })}" method="GET">
+        ${say(detalle)}
+    </Gather>
+    ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
+    <Hangup/>`;
+  return res.status(200).send(xml(body));
 });
 
 app.get('/manejar-detalle', (req, res) => {
@@ -368,6 +422,7 @@ app.get('/manejar-detalle', (req, res) => {
   if (!service) return res.status(200).send(xml(redirectTo('/voice', {})));
 
   if (digit === '1') {
+    // Cotizador dinámico: solo algunos servicios tienen preguntas de seguimiento
     if (needsExtraQuestion(key)) {
       return res.status(200).send(xml(redirectTo('/estado/pregunta', { key })));
     }
@@ -388,8 +443,13 @@ app.get('/estado/pregunta', (req, res) => {
 
   if (!config) return res.status(200).send(xml(redirectTo('/estado/confirmar', { key })));
 
-  const body = `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/manejar-pregunta', { key, intentos })}" method="GET">${say(config.prompt)}</Gather>${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}<Hangup/>`;
-  return res.status(200).send(xml(cleanXmlString(body)));
+  const body =
+    `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/manejar-pregunta', { key, intentos })}" method="GET">
+        ${say(config.prompt)}
+    </Gather>
+    ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
+    <Hangup/>`;
+  return res.status(200).send(xml(body));
 });
 
 app.get('/manejar-pregunta', (req, res) => {
@@ -426,10 +486,17 @@ app.get('/estado/confirmar', (req, res) => {
     resumen += ` ${config.note(extra)}`;
   }
 
-  const confirmacion = `${resumen} Si todo es correcto y quieres que un specialist te contacte, presiona 1. Si quieres corregir tu selección, presiona 2.`;
+  const confirmacion =
+    `${resumen} Si todo es correcto y quieres que un especialista te contacte, presiona 1. ` +
+    'Si quieres corregir tu selección, presiona 2.';
 
-  const body = `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/manejar-confirmar', { key, extra, intentos })}" method="GET">${say(confirmacion)}</Gather>${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}<Hangup/>`;
-  return res.status(200).send(xml(cleanXmlString(body)));
+  const body =
+    `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/manejar-confirmar', { key, extra, intentos })}" method="GET">
+        ${say(confirmacion)}
+    </Gather>
+    ${say('No recibimos tu respuesta. Gracias por llamar a BioMey.')}
+    <Hangup/>`;
+  return res.status(200).send(xml(body));
 });
 
 app.get('/manejar-confirmar', async (req, res) => {
@@ -445,7 +512,7 @@ app.get('/manejar-confirmar', async (req, res) => {
   if (!service) return res.status(200).send(xml(redirectTo('/voice', {})));
 
   if (digit === '2') {
-    return res.status(200).send(xml(`${say('Sin problema, regresemos al menú principal.')}${redirectTo('/voice', {})}`));
+    return res.status(200).send(xml(say('Sin problema, regresemos al menú principal.') + redirectTo('/voice', {})));
   }
 
   if (digit !== '1') {
@@ -455,6 +522,8 @@ app.get('/manejar-confirmar', async (req, res) => {
   const notaExtra = (EXTRA_QUESTIONS[key] && extra) ? EXTRA_QUESTIONS[key].note(extra) : '';
 
   try {
+    const resend = getResendClient();
+    if (!resend) throw new Error('Cliente de Resend no disponible (falta RESEND_API_KEY).');
     await resend.emails.send({
       from: 'BioMeyBot <onboarding@resend.dev>',
       to: '231183@ids.upchiapas.edu.mx',
@@ -479,9 +548,12 @@ app.get('/manejar-confirmar', async (req, res) => {
     console.error('Error crítico en Resend API:', emailError.message);
   }
 
-  const despedida = `Perfecto. Hemos registrado tu interés en ${service.name} de manera exitosa. ${scheduleNote()} Recuerda que esta fue una demostración de nuestra versión beta; la versión Pro incluye muchas más funciones para tu negocio. Muchas gracias por tu tiempo.`;
+  const despedida =
+    `Perfecto. Hemos registrado tu interés en ${service.name} de manera exitosa. ${scheduleNote()} ` +
+    'Recuerda que esta fue una demostración de nuestra versión beta; la versión Pro incluye muchas más funciones para tu negocio. ' +
+    'Muchas gracias por tu tiempo.';
 
-  return res.status(200).send(xml(`${say(despedida)}<Hangup/>`));
+  return res.status(200).send(xml(say(despedida) + '<Hangup/>'));
 });
 
 // ============================================================
@@ -502,11 +574,26 @@ app.get('/make-call', async (req, res) => {
       method: 'GET',
       to: '+528144384806',
       from: TWILIO_CALLER_ID
+      // Para habilitar grabación REAL de la llamada (no solo el aviso hablado),
+      // descomenta la siguiente línea:
+      // record: true,
     });
     return res.json({ status: 'success', message: 'Llamada iniciada correctamente', callSid: call.sid });
   } catch (error) {
     return res.status(500).json({ status: 'error', message: error.message });
   }
+});
+
+// ============================================================
+// RED DE SEGURIDAD: si algo truena sin control, responder con
+// TwiML válido en vez de dejar que Twilio reciba un error crudo.
+// ============================================================
+app.use((err, req, res, next) => {
+  console.error('Error no controlado en el bot:', err);
+  res.type('text/xml');
+  return res.status(200).send(
+    xml(say('Ocurrió un problema técnico. Por favor intenta llamar de nuevo en unos minutos. Gracias por tu paciencia.') + '<Hangup/>')
+  );
 });
 
 module.exports = app;
