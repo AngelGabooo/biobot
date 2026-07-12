@@ -286,17 +286,22 @@ app.get('/voice', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
   const intentosAsesor = req.query?.intentosAsesor || '0';
+  // intro=0 se usa cuando el cliente ya escuchó el aviso legal en esta misma
+  // llamada (por ejemplo, al corregir su selección) y no queremos repetírselo.
+  const intro = req.query?.intro !== '0';
 
   const menu =
-    'Bienvenido a BioMey, tu agencia de soluciones digitales. ' +
+    (intro ? 'Bienvenido a BioMey, tu agencia de soluciones digitales. ' : 'Volvamos al menú principal. ') +
     'Para páginas web, presiona 1. ' +
     'Para mantenimiento de computadoras, presiona 2. ' +
     'Para instalación de software o soporte de redes, presiona 3. ' +
     'También puedes decir en voz alta el servicio que buscas.';
 
+  const introTexto = intro ? (AVISO_LEGAL + AYUDA_TECLAS) : AYUDA_TECLAS;
+
   const body =
     `<Gather input="dtmf speech" numDigits="1" timeout="6" speechTimeout="auto" action="${fullUrl('/menu-principal', { intentos, intentosAsesor })}" method="GET" language="es-MX">
-        ${say(AVISO_LEGAL + AYUDA_TECLAS + menu)}
+        ${say(introTexto + menu)}
     </Gather>
     ${say('No recibimos ninguna respuesta. Puedes llamarnos de nuevo cuando gustes. Gracias por contactar a BioMey.')}
     <Hangup/>`;
@@ -568,7 +573,7 @@ app.get('/manejar-confirmar', async (req, res) => {
   if (!service) return res.status(200).send(xml(redirectTo('/voice', {})));
 
   if (digit === '2') {
-    return res.status(200).send(xml(say('Sin problema, regresemos al menú principal.') + redirectTo('/voice', {})));
+    return res.status(200).send(xml(say('Sin problema, elige de nuevo el servicio que te interesa.') + redirectTo('/voice', { intro: '0' })));
   }
 
   if (digit !== '1') {
