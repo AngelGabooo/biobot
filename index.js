@@ -10,7 +10,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Inicialización perezosa: si falta RESEND_API_KEY, no debe tumbar todo el servidor.
-// Se crea el cliente solo cuando realmente se va a enviar un correo.
 function getResendClient() {
   if (!process.env.RESEND_API_KEY) {
     console.error('RESEND_API_KEY no está configurada en las variables de entorno.');
@@ -91,8 +90,6 @@ const webMenuMap = { '1': 'landing', '2': 'negocios', '3': 'profesional', '4': '
 const mantenimientoMenuMap = { '1': 'mantenimiento_preventivo', '2': 'mantenimiento_correctivo' };
 const soporteMenuMap = { '1': 'software', '2': 'redes' };
 
-// Cotizador dinámico: preguntas de seguimiento solo para servicios donde el
-// alcance puede variar mucho. Es lógica de negocio pura (árbol de decisión), sin IA.
 const EXTRA_QUESTIONS = {
   profesional: {
     prompt: '¿Ya cuentas con dominio y hosting propios? Si ya los tienes, presiona 1. Si necesitas que te los incluyamos, presiona 2.',
@@ -140,12 +137,10 @@ const BASE_URL = 'https://biobot-six.vercel.app';
 const VOICE = { language: 'es-MX', voice: 'es-MX-Standard-A' };
 const TWILIO_CALLER_ID = '+18312825317';
 
-// Configura este número real en Vercel (Settings > Environment Variables > ADVISOR_PHONE_NUMBER)
-// para que la tecla 0 transfiera la llamada con un asesor de verdad.
 const ADVISOR_NUMBER = process.env.ADVISOR_PHONE_NUMBER || '+528144384806';
 
-const MAX_INTENTOS = 3; // intentos fallidos antes de escalar automáticamente con un asesor
-const MAX_INTENTOS_ASESOR = 2; // veces que reintentamos marcar al asesor antes de dejar de insistir
+const MAX_INTENTOS = 3;
+const MAX_INTENTOS_ASESOR = 2;
 
 const AVISO_LEGAL =
   'Antes de continuar, te informamos que esta llamada está siendo monitoreada y grabada con fines de calidad. ' +
@@ -168,9 +163,6 @@ function qs(params = {}) {
   const parts = Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`);
-  // IMPORTANTE: dentro de XML/TwiML el separador "&" debe ir escapado como "&amp;".
-  // Un "&" suelto en el XML provoca que Twilio rechace todo el documento
-  // con "Application error" en cuanto la URL lleva 2 o más parámetros.
   return parts.length ? `?${parts.join('&amp;')}` : '';
 }
 
@@ -182,12 +174,9 @@ function redirectTo(path, params) {
   return `<Redirect method="GET">${fullUrl(path, params)}</Redirect>`;
 }
 
-// ============================================================
-// HORARIO INTELIGENTE
-// ============================================================
 function isBusinessHours() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
-  const day = now.getDay(); // 0 = domingo
+  const day = now.getDay();
   const hour = now.getHours();
   if (day === 0) return false;
   return hour >= 9 && hour < 19;
@@ -200,11 +189,6 @@ function scheduleNote() {
       'Un especialista te contactará el siguiente día hábil.';
 }
 
-// ============================================================
-// NAVEGACIÓN UNIVERSAL (*, #, 0) + ESCALAMIENTO POR INTENTOS
-// ============================================================
-// selfPath/selfParams describen la URL de "render" a la que hay que regresar
-// si el cliente presiona * (repetir el mensaje actual).
 function handleUniversalKeys(req, res, selfPath, selfParams) {
   const digit = req.query?.Digits;
 
@@ -236,8 +220,6 @@ function transferirConAsesor() {
   );
 }
 
-// Cuando se agotan los intentos válidos en un estado, escalamos directo con un asesor
-// en vez de seguir repitiendo el menú indefinidamente.
 function retryOrEscalate(req, res, selfPath, selfParams) {
   const intentos = parseInt(req.query?.intentos || '0', 10) + 1;
   res.type('text/xml');
@@ -250,44 +232,19 @@ function retryOrEscalate(req, res, selfPath, selfParams) {
   return res.status(200).send(xml(body));
 }
 
-// Cuando el asesor no contesta (busy, no-answer, failed, canceled), en vez de
-// colgar de inmediato regresamos al cliente al menú principal para que elija
-// un servicio. Ese flujo normal ya termina enviando el correo (Resend) con el
-// teléfono del cliente y el servicio elegido, para que el asesor lo contacte
-// después. Llevamos un contador (intentosAsesor) para no reintentar el Dial
-// de forma indefinida si el cliente vuelve a presionar 0.
-app.get('/despues-de-asesor', (req, res) => {
-  res.type('text/xml');
-  const status = req.query?.DialCallStatus;
-  const intentosAsesor = parseInt(req.query?.intentosAsesor || '0', 10) + 1;
+// ============================================================
+// RUTAS DE LA API
+// ============================================================
 
-  if (status === 'completed' || status === 'answered') {
-    const body = say('Gracias por llamar a BioMey. Que tengas excelente día.') + '<Hangup/>';
-    return res.status(200).send(xml(body));
-  }
-
-  const body =
-    say(
-      'En este momento nuestro asesor no pudo contestar. ' +
-      'Mientras te contactamos, cuéntanos qué servicio te interesa y lo registraremos para que un especialista te llame más tarde.'
-    ) + redirectTo('/voice', { intentosAsesor });
-  return res.status(200).send(xml(body));
-});
-
-// RUTA RAÍZ
 app.get('/', (req, res) => {
   return res.status(200).send('Servidor BioMey Activo en Vercel');
 });
 
-// ============================================================
-// ESTADO: MENÚ PRINCIPAL
-// ============================================================
+// ── MENÚ PRINCIPAL ──────────────────────────────────────────────
 app.get('/voice', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
   const intentosAsesor = req.query?.intentosAsesor || '0';
-  // intro=0 se usa cuando el cliente ya escuchó el aviso legal en esta misma
-  // llamada (por ejemplo, al corregir su selección) y no queremos repetírselo.
   const intro = req.query?.intro !== '0';
 
   const menu =
@@ -332,9 +289,6 @@ app.get('/menu-principal', (req, res) => {
   }
 });
 
-// Variante de handleUniversalKeys que respeta el contador de reintentos de asesor
-// (para no reintentar el Dial indefinidamente si el cliente sigue presionando 0
-// después de que el asesor ya no contestó varias veces).
 function handleUniversalKeysConAsesor(req, res, selfPath, selfParams, intentosAsesor) {
   const digit = req.query?.Digits;
 
@@ -367,9 +321,27 @@ function handleUniversalKeysConAsesor(req, res, selfPath, selfParams, intentosAs
   return false;
 }
 
-// ============================================================
-// ESTADO: SUBMENÚ PÁGINAS WEB
-// ============================================================
+app.get('/despues-de-asesor', (req, res) => {
+  res.type('text/xml');
+  const status = req.query?.DialCallStatus;
+  const intentosAsesor = parseInt(req.query?.intentosAsesor || '0', 10) + 1;
+
+  if (status === 'completed' || status === 'answered') {
+    const body = say('Gracias por llamar a BioMey. Que tengas excelente día.') + '<Hangup/>';
+    return res.status(200).send(xml(body));
+  }
+
+  const body =
+    say(
+      'En este momento nuestro asesor no pudo contestar. ' +
+      'Mientras te contactamos, cuéntanos qué servicio te interesa y lo registraremos para que un especialista te llame más tarde.'
+    ) + redirectTo('/voice', { intentosAsesor });
+  return res.status(200).send(xml(body));
+});
+
+// ── SUBMENÚS ──────────────────────────────────────────────────────
+
+// Páginas Web
 app.get('/estado/web', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
@@ -395,9 +367,7 @@ app.get('/menu-web', (req, res) => {
   return retryOrEscalate(req, res, '/estado/web', {});
 });
 
-// ============================================================
-// ESTADO: SUBMENÚ MANTENIMIENTO
-// ============================================================
+// Mantenimiento
 app.get('/estado/mantenimiento', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
@@ -422,9 +392,7 @@ app.get('/menu-mantenimiento', (req, res) => {
   return retryOrEscalate(req, res, '/estado/mantenimiento', {});
 });
 
-// ============================================================
-// ESTADO: SUBMENÚ SOFTWARE Y REDES
-// ============================================================
+// Soporte
 app.get('/estado/soporte', (req, res) => {
   res.type('text/xml');
   const intentos = req.query?.intentos || '0';
@@ -449,9 +417,8 @@ app.get('/menu-soporte', (req, res) => {
   return retryOrEscalate(req, res, '/estado/soporte', {});
 });
 
-// ============================================================
-// ESTADO: DETALLE DEL SERVICIO (precio + descripción)
-// ============================================================
+// ── DETALLE DEL SERVICIO ──────────────────────────────────────────
+
 app.get('/estado/detalle', (req, res) => {
   res.type('text/xml');
   const key = req.query?.key;
@@ -483,7 +450,6 @@ app.get('/manejar-detalle', (req, res) => {
   if (!service) return res.status(200).send(xml(redirectTo('/voice', {})));
 
   if (digit === '1') {
-    // Cotizador dinámico: solo algunos servicios tienen preguntas de seguimiento
     if (needsExtraQuestion(key)) {
       return res.status(200).send(xml(redirectTo('/estado/pregunta', { key })));
     }
@@ -493,9 +459,8 @@ app.get('/manejar-detalle', (req, res) => {
   return retryOrEscalate(req, res, '/estado/detalle', { key });
 });
 
-// ============================================================
-// ESTADO: PREGUNTA DE COTIZADOR DINÁMICO
-// ============================================================
+// ── PREGUNTAS ADICIONALES ──────────────────────────────────────────
+
 app.get('/estado/pregunta', (req, res) => {
   res.type('text/xml');
   const key = req.query?.key;
@@ -529,9 +494,8 @@ app.get('/manejar-pregunta', (req, res) => {
   return retryOrEscalate(req, res, '/estado/pregunta', { key });
 });
 
-// ============================================================
-// ESTADO: CONFIRMACIÓN CON OPCIÓN DE CORREGIR
-// ============================================================
+// ── CONFIRMACIÓN ──────────────────────────────────────────────────
+
 app.get('/estado/confirmar', (req, res) => {
   res.type('text/xml');
   const key = req.query?.key;
@@ -618,7 +582,7 @@ app.get('/manejar-confirmar', async (req, res) => {
 });
 
 // ============================================================
-// ENDPOINT: DISPARAR LLAMADA SALIENTE
+// 🔥 NUEVO: ENDPOINT PARA LLAMAR AL CLIENTE Y CONECTAR CON PRODUCTOR
 // ============================================================
 app.get('/make-call', async (req, res) => {
   const envAccountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -628,26 +592,146 @@ app.get('/make-call', async (req, res) => {
     return res.status(500).json({ status: 'error', message: 'Variables de entorno faltantes en Vercel.' });
   }
 
+  // Obtener los números de la query
+  const clientPhone = req.query.clientPhone;
+  const producerPhone = req.query.producerPhone;
+  const producerName = req.query.producerName || 'Productor';
+
+  // Validar que tengamos los números
+  if (!clientPhone) {
+    return res.status(400).json({ status: 'error', message: 'Se requiere el número del cliente (clientPhone).' });
+  }
+
+  if (!producerPhone) {
+    return res.status(400).json({ status: 'error', message: 'Se requiere el número del productor (producerPhone).' });
+  }
+
   try {
     const secureClient = twilio(envAccountSid.trim(), envAuthToken.trim());
+    
+    // Llamar al cliente primero con el menú para conectar con el productor
     const call = await secureClient.calls.create({
-      url: `${BASE_URL}/voice`,
+      url: `${BASE_URL}/voice/with-producer?producerPhone=${encodeURIComponent(producerPhone)}&producerName=${encodeURIComponent(producerName)}`,
       method: 'GET',
-      to: '+528144384806',
-      from: TWILIO_CALLER_ID
-      // Para habilitar grabación REAL de la llamada (no solo el aviso hablado),
-      // descomenta la siguiente línea:
-      // record: true,
+      to: clientPhone,
+      from: TWILIO_CALLER_ID,
     });
-    return res.json({ status: 'success', message: 'Llamada iniciada correctamente', callSid: call.sid });
+    
+    return res.json({ 
+      status: 'success', 
+      message: 'Llamada iniciada correctamente', 
+      callSid: call.sid 
+    });
   } catch (error) {
+    console.error('Error al iniciar llamada:', error);
     return res.status(500).json({ status: 'error', message: error.message });
   }
 });
 
 // ============================================================
-// RED DE SEGURIDAD: si algo truena sin control, responder con
-// TwiML válido en vez de dejar que Twilio reciba un error crudo.
+// 🔥 NUEVO: VOICE CON PRODUCTOR (menú para el cliente)
+// ============================================================
+app.get('/voice/with-producer', (req, res) => {
+  res.type('text/xml');
+  const producerPhone = req.query.producerPhone || '+528144384806';
+  const producerName = req.query.producerName || 'Productor';
+
+  const menu = 
+    `Bienvenido a BioMey. Has solicitado contactar a ${producerName}. ` +
+    `Presiona 1 para hablar directamente con el productor. ` +
+    `Presiona 2 para recibir información sobre servicios. ` +
+    `Presiona 0 para hablar con un asesor.`;
+
+  const body = `
+    <Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/manejar-llamada-productor', { producerPhone, producerName })}" method="GET">
+        ${say(menu)}
+    </Gather>
+    ${say('No recibimos tu respuesta. Gracias por contactar a BioMey.')}
+    <Hangup/>`;
+
+  return res.status(200).send(xml(body));
+});
+
+// ============================================================
+// 🔥 NUEVO: MANEJAR LLAMADA PRODUCTOR
+// ============================================================
+app.get('/manejar-llamada-productor', (req, res) => {
+  res.type('text/xml');
+  const digit = req.query?.Digits;
+  const producerPhone = req.query?.producerPhone || '+528144384806';
+  const producerName = req.query?.producerName || 'Productor';
+
+  if (digit === '1') {
+    // Transferir llamada al productor
+    const body = 
+      say(`Conectando con ${producerName}, un momento por favor.`) +
+      `<Dial timeout="20" callerId="${TWILIO_CALLER_ID}" action="${BASE_URL}/despues-de-llamada" method="GET">${producerPhone}</Dial>`;
+    return res.status(200).send(xml(body));
+  }
+
+  if (digit === '2') {
+    // Información de servicios
+    const body = 
+      say('Gracias por tu interés en BioMey. Nuestros servicios incluyen páginas web, mantenimiento de computadoras y soporte técnico.') +
+      say('¿Te gustaría hablar con un asesor? Presiona 1 para sí, presiona 2 para finalizar.') +
+      `<Gather input="dtmf" numDigits="1" timeout="6" action="${fullUrl('/manejar-asesor-llamada', { producerPhone, producerName })}" method="GET">
+          ${say('Presiona 1 para hablar con un asesor, o 2 para finalizar.')}
+      </Gather>`;
+    return res.status(200).send(xml(body));
+  }
+
+  if (digit === '0') {
+    // Transferir a asesor
+    const body = 
+      say('Te comunico con un asesor, un momento por favor.') +
+      `<Dial timeout="20" callerId="${TWILIO_CALLER_ID}" action="${BASE_URL}/despues-de-llamada" method="GET">${ADVISOR_NUMBER}</Dial>`;
+    return res.status(200).send(xml(body));
+  }
+
+  // Si no reconoce, repetir
+  const body = 
+    say('No reconocimos tu opción.') +
+    redirectTo('/voice/with-producer', { producerPhone, producerName });
+  return res.status(200).send(xml(body));
+});
+
+// ============================================================
+// 🔥 NUEVO: DESPUÉS DE LLAMADA
+// ============================================================
+app.get('/despues-de-llamada', (req, res) => {
+  res.type('text/xml');
+  const status = req.query?.DialCallStatus;
+
+  if (status === 'completed' || status === 'answered') {
+    const body = say('La llamada ha finalizado. Gracias por usar BioMey. Que tengas excelente día.') + '<Hangup/>';
+    return res.status(200).send(xml(body));
+  }
+
+  const body = 
+    say('No se pudo completar la llamada. Por favor intenta de nuevo más tarde.') + '<Hangup/>';
+  return res.status(200).send(xml(body));
+});
+
+// ============================================================
+// 🔥 NUEVO: MANEJAR ASESOR EN LLAMADA
+// ============================================================
+app.get('/manejar-asesor-llamada', (req, res) => {
+  res.type('text/xml');
+  const digit = req.query?.Digits;
+
+  if (digit === '1') {
+    const body = 
+      say('Te comunico con un asesor, un momento por favor.') +
+      `<Dial timeout="20" callerId="${TWILIO_CALLER_ID}" action="${BASE_URL}/despues-de-llamada" method="GET">${ADVISOR_NUMBER}</Dial>`;
+    return res.status(200).send(xml(body));
+  }
+
+  const body = say('Gracias por llamar a BioMey. Que tengas excelente día.') + '<Hangup/>';
+  return res.status(200).send(xml(body));
+});
+
+// ============================================================
+// RED DE SEGURIDAD
 // ============================================================
 app.use((err, req, res, next) => {
   console.error('Error no controlado en el bot:', err);
